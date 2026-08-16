@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manga Yomikata — read any word in your manga</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F2EEE4;
+    --ink:#171512;
+    --ink-soft:#57524A;
+    --line:#171512;
+    --line-soft:#D9D2C2;
+    --red:#C6362C;
+    --yellow:#F0C93B;
+    --card:#FBFAF6;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    -webkit-font-smoothing:antialiased;
+    padding-bottom:60px;
+  }
+  .jp{ font-family:'Noto Sans JP','Inter',sans-serif; }
+
+  /* ---------- header ---------- */
+  header{
+    padding:28px 20px 20px;
+    max-width:720px;
+    margin:0 auto;
+  }
+  .eyebrow{
+    font-size:12px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--red);
+    font-weight:700;
+    margin:0 0 6px;
+  }
+  h1{
+    font-family:'Bungee',sans-serif;
+    font-weight:400;
+    font-size:clamp(28px,7vw,42px);
+    line-height:1.05;
+    margin:0 0 10px;
+    letter-spacing:.01em;
+  }
+  header p{
+    color:var(--ink-soft);
+    font-size:15px;
+    line-height:1.5;
+    max-width:52ch;
+    margin:0;
+  }
+
+  main{max-width:720px;margin:0 auto;padding:0 20px;}
+
+  /* ---------- panel (signature element) ---------- */
+  .panel{
+    background:var(--card);
+    border:3px solid var(--line);
+    border-radius:4px;
+    box-shadow:6px 6px 0 var(--ink);
+    padding:20px;
+    margin-top:26px;
+    position:relative;
+  }
+  .panel-tab{
+    position:absolute;
+    top:-13px;
+    left:16px;
+    background:var(--ink);
+    color:var(--paper);
+    font-family:'Bungee',sans-serif;
+    font-size:11px;
+    letter-spacing:.08em;
+    padding:4px 10px;
+    border-radius:3px;
+  }
+  .dots{
+    position:absolute;
+    width:34px;height:34px;
+    bottom:-3px;right:-3px;
+    background-image:radial-gradient(var(--ink) 1.6px, transparent 1.6px);
+    background-size:7px 7px;
+    opacity:.85;
+    border-radius:0 0 2px 0;
+    pointer-events:none;
+  }
+
+  /* ---------- input tabs ---------- */
+  .tabs{display:flex;gap:8px;margin-bottom:16px;}
+  .tab-btn{
+    flex:1;
+    font-family:'Inter',sans-serif;
+    font-weight:600;
+    font-size:13px;
+    padding:10px 8px;
+    border:2px solid var(--ink);
+    background:var(--paper);
+    border-radius:3px;
+    cursor:pointer;
+    color:var(--ink);
+  }
+  .tab-btn.active{background:var(--ink);color:var(--paper);}
+
+  .drop-zone{
+    border:2px dashed var(--ink-soft);
+    border-radius:4px;
+    padding:26px 16px;
+    text-align:center;
+    cursor:pointer;
+    background:#fff;
+    transition:border-color .15s, background .15s;
+  }
+  .drop-zone.drag{border-color:var(--red);background:#fff7f4;}
+  .drop-zone p{margin:6px 0 0;color:var(--ink-soft);font-size:13px;}
+  .drop-zone strong{display:block;font-size:15px;}
+  .drop-zone input{display:none;}
+  .cam-row{display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap;}
+
+  #preview{
+    max-width:100%;
+    max-height:220px;
+    display:none;
+    margin:14px auto 0;
+    border:2px solid var(--ink);
+    border-radius:3px;
+  }
+
+  textarea{
+    width:100%;
+    min-height:110px;
+    font-family:'Noto Sans JP','Inter',sans-serif;
+    font-size:17px;
+    line-height:1.6;
+    padding:12px;
+    border:2px solid var(--ink);
+    border-radius:3px;
+    background:#fff;
+    color:var(--ink);
+    resize:vertical;
+    margin-top:14px;
+  }
+  textarea:focus{outline:2px solid var(--red);outline-offset:1px;}
+
+  .hint{font-size:12.5px;color:var(--ink-soft);margin-top:6px;}
+
+  button.primary{
+    font-family:'Inter',sans-serif;
+    font-weight:700;
+    font-size:15px;
+    padding:12px 18px;
+    background:var(--red);
+    color:#fff;
+    border:2px solid var(--ink);
+    border-radius:3px;
+    cursor:pointer;
+    margin-top:14px;
+    width:100%;
+  }
+  button.primary:active{transform:translateY(1px);}
+  button.primary:disabled{background:#c9c3b4;color:#88837a;cursor:not-allowed;}
+
+  button.ghost{
+    font-family:'Inter',sans-serif;
+    font-weight:600;
+    font-size:13px;
+    padding:9px 14px;
+    background:transparent;
+    color:var(--ink);
+    border:2px solid var(--ink);
+    border-radius:3px;
+    cursor:pointer;
+  }
+
+  .status{
+    display:none;
+    align-items:center;
+    gap:10px;
+    font-size:13.5px;
+    color:var(--ink-soft);
+    margin-top:12px;
+  }
+  .status.show{display:flex;}
+  .spinner{
+    width:16px;height:16px;
+    border:2.5px solid var(--line-soft);
+    border-top-color:var(--red);
+    border-radius:50%;
+    animation:spin .8s linear infinite;
+    flex:none;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .error{
+    display:none;
+    background:#fdeceb;
+    border:1.5px solid var(--red);
+    color:#7a231d;
+    font-size:13px;
+    padding:9px 12px;
+    border-radius:3px;
+    margin-top:12px;
+  }
+  .error.show{display:block;}
+
+  /* ---------- results ---------- */
+  #results{margin-top:26px;}
+  .results-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:12px;
+  }
+  .results-head h2{
+    font-family:'Bungee',sans-serif;
+    font-weight:400;
+    font-size:18px;
+    margin:0;
+  }
+  .sentence-tr{
+    font-size:14px;
+    color:var(--ink-soft);
+    background:#fff;
+    border:1.5px solid var(--line-soft);
+    border-radius:3px;
+    padding:10px 12px;
+    margin-bottom:16px;
+  }
+  .sentence-tr b{color:var(--ink);}
+
+  .word-grid{display:flex;flex-direction:column;gap:10px;}
+  .word-card{
+    background:#fff;
+    border:2px solid var(--ink);
+    border-radius:4px;
+    padding:12px 14px;
+    display:flex;
+    align-items:center;
+    gap:14px;
+    flex-wrap:wrap;
+  }
+  .word-main{min-width:84px;}
+  .word-kanji{
+    font-family:'Noto Sans JP',sans-serif;
+    font-weight:700;
+    font-size:22px;
+    line-height:1.15;
+  }
+  .word-kana{
+    font-family:'Noto Sans JP',sans-serif;
+    font-size:13px;
+    color:var(--ink-soft);
+  }
+  .word-romaji{
+    font-size:13px;
+    font-weight:700;
+    color:var(--red);
+    text-transform:lowercase;
+    letter-spacing:.02em;
+  }
+  .word-mid{flex:1;min-width:140px;}
+  .word-en{font-size:14.5px;}
+  .word-pos{
+    display:inline-block;
+    font-size:10.5px;
+    text-transform:uppercase;
+    letter-spacing:.05em;
+    background:var(--yellow);
+    border:1px solid var(--ink);
+    padding:1px 6px;
+    border-radius:2px;
+    margin-top:4px;
+  }
+  .jisho-link{
+    font-size:12px;
+    font-weight:600;
+    color:var(--ink);
+    text-decoration:none;
+    border:1.5px solid var(--ink);
+    border-radius:3px;
+    padding:6px 9px;
+    white-space:nowrap;
+  }
+  .jisho-link:hover{background:var(--ink);color:var(--paper);}
+
+  footer{
+    max-width:720px;margin:36px auto 0;padding:0 20px;
+    font-size:12px;color:var(--ink-soft);
+    text-align:center;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .spinner{animation:none;border-top-color:var(--red);}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <p class="eyebrow">Panel 01 · Reading Tool</p>
+  <h1>MANGA<br>YOMIKATA</h1>
+  <p>Snap or paste any word you can't read yet. Get the kana reading, romaji, and English meaning — so you can keep reading instead of stopping to look things up.</p>
+</header>
+
+<main>
+
+  <!-- INPUT PANEL -->
+  <section class="panel">
+    <span class="panel-tab">STEP 1 · GET THE TEXT</span>
+    <div class="tabs">
+      <button class="tab-btn active" id="tabPhoto">📷 Photo / Screenshot</button>
+      <button class="tab-btn" id="tabType">⌨️ Type it myself</button>
+    </div>
+
+    <div id="photoPane">
+      <div class="drop-zone" id="dropZone">
+        <strong>Drop a screenshot here, or tap to choose</strong>
+        <p>Works with a manga page photo, a screenshot, or a phone camera shot.</p>
+        <input type="file" id="fileInput" accept="image/*">
+      </div>
+      <div class="cam-row">
+        <label class="ghost" style="display:inline-block;cursor:pointer;">
+          📸 Use camera
+          <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none;">
+        </label>
+        <button class="ghost" id="clearImageBtn" style="display:none;">Remove photo</button>
+      </div>
+      <img id="preview" alt="Selected manga page preview">
+      <div class="status" id="ocrStatus"><span class="spinner"></span><span id="ocrStatusText">Reading text from image…</span></div>
+    </div>
+
+    <div id="typePane" style="display:none;">
+      <p class="hint" style="margin-top:0;">Type or paste Japanese text directly.</p>
+    </div>
+
+    <textarea id="textArea" class="jp" placeholder="Japanese text will appear here — you can edit it before analyzing, especially if the photo scan got something wrong."></textarea>
+    <p class="hint">Manga fonts can trip up the scanner — double-check the text above before analyzing.</p>
+
+    <button class="primary" id="analyzeBtn">Show me how to read this →</button>
+    <div class="status" id="analyzeStatus"><span class="spinner"></span><span id="analyzeStatusText">Loading dictionary…</span></div>
+    <div class="error" id="errorBox"></div>
+  </section>
+
+  <!-- RESULTS -->
+  <section id="results" style="display:none;">
+    <div class="panel">
+      <span class="panel-tab">STEP 2 · YOUR BREAKDOWN</span>
+      <div class="results-head">
+        <h2>Word by word</h2>
+        <button class="ghost" id="clearResultsBtn">Clear</button>
+      </div>
+      <div class="sentence-tr" id="sentenceTr" style="display:none;"></div>
+      <div class="word-grid" id="wordGrid"></div>
+      <div class="dots"></div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  Runs entirely in your browser. OCR + kana readings are free and local; English meanings come from the free MyMemory API. Not perfect — when in doubt, tap "Jisho ↗" on any word.
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/build/kuromoji.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  // ---------- elements ----------
+  const tabPhoto = document.getElementById('tabPhoto');
+  const tabType = document.getElementById('tabType');
+  const photoPane = document.getElementById('photoPane');
+  const typePane = document.getElementById('typePane');
+  const dropZone = document.getElementById('dropZone');
+  const fileInput = document.getElementById('fileInput');
+  const cameraInput = document.getElementById('cameraInput');
+  const preview = document.getElementById('preview');
+  const clearImageBtn = document.getElementById('clearImageBtn');
+  const textArea = document.getElementById('textArea');
+  const analyzeBtn = document.getElementById('analyzeBtn');
+  const ocrStatus = document.getElementById('ocrStatus');
+  const ocrStatusText = document.getElementById('ocrStatusText');
+  const analyzeStatus = document.getElementById('analyzeStatus');
+  const analyzeStatusText = document.getElementById('analyzeStatusText');
+  const errorBox = document.getElementById('errorBox');
+  const results = document.getElementById('results');
+  const wordGrid = document.getElementById('wordGrid');
+  const sentenceTr = document.getElementById('sentenceTr');
+  const clearResultsBtn = document.getElementById('clearResultsBtn');
+
+  function showError(msg){ errorBox.textContent = msg; errorBox.classList.add('show'); }
+  function hideError(){ errorBox.classList.remove('show'); }
+
+  // ---------- tabs ----------
+  tabPhoto.addEventListener('click', () => {
+    tabPhoto.classList.add('active'); tabType.classList.remove('active');
+    photoPane.style.display = ''; typePane.style.display = 'none';
+  });
+  tabType.addEventListener('click', () => {
+    tabType.classList.add('active'); tabPhoto.classList.remove('active');
+    typePane.style.display = ''; photoPane.style.display = 'none';
+  });
+
+  // ---------- image input ----------
+  dropZone.addEventListener('click', () => fileInput.click());
+  ['dragover','dragenter'].forEach(ev => dropZone.addEventListener(ev, e => {
+    e.preventDefault(); dropZone.classList.add('drag');
+  }));
+  ['dragleave','drop'].forEach(ev => dropZone.addEventListener(ev, e => {
+    e.preventDefault(); dropZone.classList.remove('drag');
+  }));
+  dropZone.addEventListener('drop', e => {
+    const f = e.dataTransfer.files[0];
+    if (f) handleImage(f);
+  });
+  fileInput.addEventListener('change', e => { if (e.target.files[0]) handleImage(e.target.files[0]); });
+  cameraInput.addEventListener('change', e => { if (e.target.files[0]) handleImage(e.target.files[0]); });
+  clearImageBtn.addEventListener('click', () => {
+    preview.style.display = 'none'; preview.src = '';
+    clearImageBtn.style.display = 'none';
+    fileInput.value = ''; cameraInput.value = '';
+  });
+
+  async function handleImage(file){
+    hideError();
+    const url = URL.createObjectURL(file);
+    preview.src = url; preview.style.display = 'block';
+    clearImageBtn.style.display = '';
+
+    ocrStatus.classList.add('show');
+    ocrStatusText.textContent = 'Starting scanner…';
+    try {
+      const worker = await Tesseract.createWorker('jpn', 1, {
+        logger: m => {
+          if (m.status === 'recognizing text') {
+            ocrStatusText.textContent = 'Reading text… ' + Math.round((m.progress||0)*100) + '%';
+          } else if (m.status) {
+            ocrStatusText.textContent = m.status.charAt(0).toUpperCase() + m.status.slice(1) + '…';
+          }
+        }
+      });
+      const { data } = await worker.recognize(file);
+      await worker.terminate();
+      const cleaned = (data.text || '').replace(/\n{2,}/g, '\n').trim();
+      textArea.value = cleaned || textArea.value;
+      if (!cleaned) showError("Couldn't find text in that image — try a clearer, more zoomed-in shot, or type the word manually.");
+    } catch (err) {
+      console.error(err);
+      showError('Scanning failed (' + (err.message || 'unknown error') + '). Try a clearer photo, or switch to "Type it myself".');
+    } finally {
+      ocrStatus.classList.remove('show');
+    }
+  }
+
+  // ---------- kuromoji tokenizer (lazy singleton) ----------
+  let tokenizerPromise = null;
+  function getTokenizer(){
+    if (!tokenizerPromise) {
+      tokenizerPromise = new Promise((resolve, reject) => {
+        kuromoji.builder({ dicPath: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/' }).build((err, tokenizer) => {
+          if (err) reject(err); else resolve(tokenizer);
+        });
+      });
+    }
+    return tokenizerPromise;
+  }
+
+  // ---------- katakana -> romaji ----------
+  const YOUON = {
+    'キャ':'kya','キュ':'kyu','キョ':'kyo','ギャ':'gya','ギュ':'gyu','ギョ':'gyo',
+    'シャ':'sha','シュ':'shu','ショ':'sho','ジャ':'ja','ジュ':'ju','ジョ':'jo',
+    'チャ':'cha','チュ':'chu','チョ':'cho','ヂャ':'ja','ヂュ':'ju','ヂョ':'jo',
+    'ニャ':'nya','ニュ':'nyu','ニョ':'nyo','ヒャ':'hya','ヒュ':'hyu','ヒョ':'hyo',
+    'ビャ':'bya','ビュ':'byu','ビョ':'byo','ピャ':'pya','ピュ':'pyu','ピョ':'pyo',
+    'ミャ':'mya','ミュ':'myu','ミョ':'myo','リャ':'rya','リュ':'ryu','リョ':'ryo',
+    'ファ':'fa','フィ':'fi','フェ':'fe','フォ':'fo','ウィ':'wi','ウェ':'we','ウォ':'wo',
+    'ティ':'ti','ディ':'di','トゥ':'tu','ドゥ':'du','チェ':'che','シェ':'she','ジェ':'je',
+    'ツァ':'tsa','ツェ':'tse','ツォ':'tso','クァ':'kwa','グァ':'gwa'
+  };
+  const KANA = {
+    'ア':'a','イ':'i','ウ':'u','エ':'e','オ':'o',
+    'カ':'ka','キ':'ki','ク':'ku','ケ':'ke','コ':'ko',
+    'サ':'sa','シ':'shi','ス':'su','セ':'se','ソ':'so',
+    'タ':'ta','チ':'chi','ツ':'tsu','テ':'te','ト':'to',
+    'ナ':'na','ニ':'ni','ヌ':'nu','ネ':'ne','ノ':'no',
+    'ハ':'ha','ヒ':'hi','フ':'fu','ヘ':'he','ホ':'ho',
+    'マ':'ma','ミ':'mi','ム':'mu','メ':'me','モ':'mo',
+    'ヤ':'ya','ユ':'yu','ヨ':'yo',
+    'ラ':'ra','リ':'ri','ル':'ru','レ':'re','ロ':'ro',
+    'ワ':'wa','ヰ':'wi','ヱ':'we','ヲ':'wo','ン':'n',
+    'ガ':'ga','ギ':'gi','グ':'gu','ゲ':'ge','ゴ':'go',
+    'ザ':'za','ジ':'ji','ズ':'zu','ゼ':'ze','ゾ':'zo',
+    'ダ':'da','ヂ':'ji','ヅ':'zu','デ':'de','ド':'do',
+    'バ':'ba','ビ':'bi','ブ':'bu','ベ':'be','ボ':'bo',
+    'パ':'pa','ピ':'pi','プ':'pu','ペ':'pe','ポ':'po',
+    'ヴ':'vu','ァ':'a','ィ':'i','ゥ':'u','ェ':'e','ォ':'o','ッ':''
+  };
+  const VOWEL_EXTEND = { a:'a', i:'i', u:'u', e:'i', o:'u' }; // rough long-vowel handling for ー
+
+  function katakanaToRomaji(kana){
+    if (!kana) return '';
+    let out = '';
+    let i = 0;
+    while (i < kana.length) {
+      const two = kana.substr(i, 2);
+      if (YOUON[two]) { out += YOUON[two]; i += 2; continue; }
+      const ch = kana[i];
+      if (ch === 'ッ') {
+        // sokuon: double next consonant
+        const nextRomaji = (YOUON[kana.substr(i+1,2)] || KANA[kana[i+1]] || '');
+        const cons = nextRomaji.charAt(0);
+        if (cons && 'aiueon'.indexOf(cons) === -1) out += cons;
+        i += 1; continue;
+      }
+      if (ch === 'ー') {
+        const last = out.charAt(out.length - 1);
+        out += VOWEL_EXTEND[last] || '';
+        i += 1; continue;
+      }
+      if (KANA[ch] !== undefined) { out += KANA[ch]; i += 1; continue; }
+      out += ch; i += 1; // pass through anything unknown (already-romaji, punctuation, etc.)
+    }
+    return out;
+  }
+
+  // ---------- translation (MyMemory, free & CORS-enabled) ----------
+  const trCache = new Map();
+  async function translate(text){
+    if (!text || !text.trim()) return '';
+    if (trCache.has(text)) return trCache.get(text);
+    const url = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(text.slice(0,480)) + '&langpair=ja|en';
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('translation request failed');
+    const data = await res.json();
+    const out = (data && data.responseData && data.responseData.translatedText) || '';
+    trCache.set(text, out);
+    return out;
+  }
+
+  const POS_LABEL = {
+    '名詞':'noun','動詞':'verb','形容詞':'adjective','副詞':'adverb',
+    '助詞':'particle','助動詞':'aux. verb','接続詞':'conjunction',
+    '感動詞':'interjection','連体詞':'modifier','記号':'symbol','フィラー':'filler'
+  };
+
+  function isSkippable(token){
+    if (token.pos === '記号') return true; // punctuation/symbols
+    if (!token.surface_form.trim()) return true;
+    return false;
+  }
+
+  // ---------- main analyze flow ----------
+  analyzeBtn.addEventListener('click', async () => {
+    hideError();
+    const text = textArea.value.trim();
+    if (!text) { showError('Add some Japanese text first — type it, paste it, or scan a photo.'); return; }
+
+    analyzeBtn.disabled = true;
+    analyzeStatus.classList.add('show');
+    analyzeStatusText.textContent = 'Loading dictionary (first time only)…';
+
+    try {
+      const tokenizer = await getTokenizer();
+      analyzeStatusText.textContent = 'Breaking down the text…';
+      const tokens = tokenizer.tokenize(text).filter(t => !isSkippable(t));
+
+      if (!tokens.length) {
+        showError('No readable Japanese words found in that text.');
+        return;
+      }
+
+      analyzeStatusText.textContent = 'Looking up meanings…';
+      const wordResults = await Promise.all(tokens.map(async t => {
+        const reading = t.reading || t.surface_form;
+        const romaji = katakanaToRomaji(reading);
+        let en = '';
+        try { en = await translate(t.basic_form && t.basic_form !== '*' ? t.basic_form : t.surface_form); }
+        catch(e) { en = ''; }
+        return {
+          surface: t.surface_form,
+          reading,
+          romaji,
+          en,
+          pos: POS_LABEL[t.pos] || ''
+        };
+      }));
+
+      let sentenceEn = '';
+      try { sentenceEn = await translate(text); } catch(e) { sentenceEn = ''; }
+
+      renderResults(wordResults, text, sentenceEn);
+    } catch (err) {
+      console.error(err);
+      showError('Something went wrong (' + (err.message || 'unknown error') + '). Check your internet connection and try again.');
+    } finally {
+      analyzeBtn.disabled = false;
+      analyzeStatus.classList.remove('show');
+    }
+  });
+
+  function renderResults(words, originalText, sentenceEn){
+    wordGrid.innerHTML = '';
+    if (sentenceEn) {
+      sentenceTr.style.display = 'block';
+      sentenceTr.innerHTML = '<b>Full line:</b> ' + escapeHtml(sentenceEn);
+    } else {
+      sentenceTr.style.display = 'none';
+    }
+
+    words.forEach(w => {
+      const card = document.createElement('div');
+      card.className = 'word-card';
+      card.innerHTML =
+        '<div class="word-main">' +
+          '<div class="word-kanji jp">' + escapeHtml(w.surface) + '</div>' +
+          '<div class="word-kana jp">' + escapeHtml(w.reading) + '</div>' +
+          '<div class="word-romaji">' + escapeHtml(w.romaji) + '</div>' +
+        '</div>' +
+        '<div class="word-mid">' +
+          '<div class="word-en">' + (w.en ? escapeHtml(w.en) : '<span style="color:#a39d8f;">meaning unavailable</span>') + '</div>' +
+          (w.pos ? '<span class="word-pos">' + escapeHtml(w.pos) + '</span>' : '') +
+        '</div>' +
+        '<a class="jisho-link" target="_blank" rel="noopener" href="https://jisho.org/search/' + encodeURIComponent(w.surface) + '">Jisho ↗</a>';
+      wordGrid.appendChild(card);
+    });
+
+    results.style.display = 'block';
+    results.scrollIntoView({ behavior:'smooth', block:'start' });
+  }
+
+  clearResultsBtn.addEventListener('click', () => {
+    results.style.display = 'none';
+    wordGrid.innerHTML = '';
+  });
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  // warm up the tokenizer in the background so the first click is faster
+  getTokenizer().catch(()=>{});
+})();
+</script>
+</body>
+</html>
