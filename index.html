@@ -369,7 +369,6 @@
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/build/kuromoji.js"></script>
 <script>
 (function(){
   "use strict";
@@ -460,17 +459,58 @@
     }
   }
 
-  // ---------- kuromoji tokenizer (lazy singleton) ----------
-  let tokenizerPromise = null;
-  function getTokenizer(){
-    if (!tokenizerPromise) {
-      tokenizerPromise = new Promise((resolve, reject) => {
-        kuromoji.builder({ dicPath: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/' }).build((err, tokenizer) => {
-          if (err) reject(err); else resolve(tokenizer);
-        });
-      });
-    }
-    return tokenizerPromise;
+  // ---------- kuromoji tokenizer, run in a Web Worker ----------
+  // Building the dictionary is CPU-heavy; running it on the main thread freezes
+  // the whole page (and its buttons) for several seconds. A worker keeps the UI responsive.
+  const KUROMOJI_WORKER_CODE = `
+    importScripts('https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/build/kuromoji.js');
+    var tokenizer = null;
+    kuromoji.builder({ dicPath: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/' }).build(function(err, tk){
+      if (err) { postMessage({ type:'init-error', error: String(err && err.message || err) }); return; }
+      tokenizer = tk;
+      postMessage({ type:'ready' });
+    });
+    self.onmessage = function(e){
+      if (e.data.type === 'tokenize') {
+        try {
+          var tokens = tokenizer.tokenize(e.data.text);
+          postMessage({ type:'tokens', id: e.data.id, tokens: tokens });
+        } catch (err) {
+          postMessage({ type:'tokenize-error', id: e.data.id, error: String(err && err.message || err) });
+        }
+      }
+    };
+  `;
+
+  let kuromojiWorker = null;
+  let kuromojiReadyPromise = null;
+  function initKuromojiWorker(){
+    if (kuromojiReadyPromise) return kuromojiReadyPromise;
+    const blob = new Blob([KUROMOJI_WORKER_CODE], { type: 'application/javascript' });
+    kuromojiWorker = new Worker(URL.createObjectURL(blob));
+    kuromojiReadyPromise = new Promise((resolve, reject) => {
+      function onMsg(e){
+        if (e.data.type === 'ready') { kuromojiWorker.removeEventListener('message', onMsg); resolve(); }
+        else if (e.data.type === 'init-error') { kuromojiWorker.removeEventListener('message', onMsg); reject(new Error(e.data.error)); }
+      }
+      kuromojiWorker.addEventListener('message', onMsg);
+      kuromojiWorker.addEventListener('error', e => reject(new Error(e.message || 'worker failed to load')));
+    });
+    return kuromojiReadyPromise;
+  }
+
+  let tokenizeReqId = 0;
+  function tokenizeInWorker(text){
+    return new Promise((resolve, reject) => {
+      const id = ++tokenizeReqId;
+      function onMsg(e){
+        if (e.data.id !== id) return;
+        if (e.data.type === 'tokens') { kuromojiWorker.removeEventListener('message', onMsg); resolve(e.data.tokens); }
+        else if (e.data.type === 'tokenize-error') { kuromojiWorker.removeEventListener('message', onMsg); reject(new Error(e.data.error)); }
+      }
+      kuromojiWorker.addEventListener('message', onMsg);
+      kuromojiWorker.postMessage({ type:'tokenize', id, text });
+    });
   }
 
   // ---------- katakana -> romaji ----------
@@ -568,9 +608,9 @@
     analyzeStatusText.textContent = 'Loading dictionary (first time only)…';
 
     try {
-      const tokenizer = await getTokenizer();
+      await initKuromojiWorker();
       analyzeStatusText.textContent = 'Breaking down the text…';
-      const tokens = tokenizer.tokenize(text).filter(t => !isSkippable(t));
+      const tokens = (await tokenizeInWorker(text)).filter(t => !isSkippable(t));
 
       if (!tokens.length) {
         showError('No readable Japanese words found in that text.');
@@ -645,8 +685,8 @@
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
-  // warm up the tokenizer in the background so the first click is faster
-  getTokenizer().catch(()=>{});
+  // warm up the tokenizer in the background (safe now — it runs off the main thread)
+  initKuromojiWorker().catch(()=>{});
 })();
 </script>
 </body>
