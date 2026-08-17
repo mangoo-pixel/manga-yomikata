@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OCR Test — Gemini vision</title>
+<style>
+  body{font-family:sans-serif;max-width:640px;margin:30px auto;padding:0 16px;background:#fafafa;}
+  h1{font-size:20px;}
+  .box{border:2px dashed #999;border-radius:8px;padding:24px;text-align:center;background:#fff;}
+  input[type=file]{margin-top:10px;}
+  #preview{max-width:100%;max-height:260px;margin-top:14px;display:none;border:1px solid #ccc;border-radius:4px;}
+  #status{margin-top:14px;font-size:14px;color:#555;}
+  #result{margin-top:16px;padding:14px;background:#fff;border:1px solid #ddd;border-radius:6px;
+    font-size:20px;white-space:pre-wrap;min-height:40px;font-family:'Hiragino Sans','Noto Sans JP',sans-serif;}
+  .label{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#888;margin-top:18px;}
+</style>
+</head>
+<body>
+  <h1>Gemini vision OCR — accuracy test</h1>
+  <p>This sends your image to a server-side function that asks Gemini to read the Japanese text. Compare this to what Tesseract/manga-ocr gave you.</p>
+
+  <div class="box">
+    <strong>Upload a manga screenshot</strong>
+    <div><input type="file" id="fileInput" accept="image/*"></div>
+    <img id="preview">
+  </div>
+
+  <div id="status">Waiting for an image…</div>
+  <div class="label">Text Gemini read:</div>
+  <div id="result">—</div>
+
+<script>
+  const fileInput = document.getElementById('fileInput');
+  const preview = document.getElementById('preview');
+  const status = document.getElementById('status');
+  const result = document.getElementById('result');
+
+  function fileToBase64(file){
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(',')[1]); // strip data:...;base64,
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  fileInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    preview.src = URL.createObjectURL(file);
+    preview.style.display = 'block';
+    result.textContent = '…';
+    status.textContent = 'Reading text…';
+
+    try {
+      const imageBase64 = await fileToBase64(file);
+      const res = await fetch('/.netlify/functions/ocr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64, mimeType: file.type || 'image/png' })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'request failed');
+      result.textContent = data.text || '(nothing detected)';
+      status.textContent = 'Done. Try another image to compare.';
+    } catch (err) {
+      console.error(err);
+      status.textContent = 'Error: ' + (err.message || err);
+      result.textContent = '—';
+    }
+  });
+</script>
+</body>
+</html>
