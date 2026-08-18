@@ -58,6 +58,28 @@
     margin:0;
   }
 
+  .account-bar{
+    margin-top:18px;
+    padding:12px 14px;
+    background:#fff;
+    border:1.5px solid var(--line-soft);
+    border-radius:4px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    flex-wrap:wrap;
+  }
+  .account-row{display:flex;gap:8px;flex-wrap:wrap;}
+  .account-bar input[type=email]{
+    font-family:'Inter',sans-serif;
+    font-size:13px;
+    padding:8px 10px;
+    border:1.5px solid var(--ink);
+    border-radius:3px;
+    min-width:180px;
+  }
+
   main{max-width:720px;margin:0 auto;padding:0 20px;}
 
   /* ---------- panel (signature element) ---------- */
@@ -307,9 +329,34 @@
   <p class="eyebrow">Panel 01 · Reading Tool</p>
   <h1>MANGA<br>YOMIKATA</h1>
   <p>Snap or paste any word you can't read yet. Get the kana reading, romaji, and English meaning — so you can keep reading instead of stopping to look things up.</p>
+
+  <div class="account-bar" id="accountBarLoggedOut">
+    <span class="hint" style="margin:0;">Sign in to save every word you look up:</span>
+    <div class="account-row">
+      <input type="email" id="emailInput" placeholder="you@email.com">
+      <button class="ghost" id="signInBtn">Send magic link</button>
+    </div>
+    <p class="hint" id="signInStatus" style="margin:6px 0 0;"></p>
+  </div>
+
+  <div class="account-bar" id="accountBarLoggedIn" style="display:none;">
+    <span class="hint" style="margin:0;">Signed in as <b id="userEmail"></b> · <span id="vocabCount">0</span> words saved</span>
+    <button class="ghost" id="signOutBtn">Sign out</button>
+  </div>
 </header>
 
 <main>
+
+  <div class="panel" id="vocabPanel" style="display:none;">
+    <span class="panel-tab">YOUR NOTEBOOK</span>
+    <div class="results-head">
+      <h2>My Vocabulary</h2>
+      <button class="ghost" id="refreshVocabBtn">Refresh</button>
+    </div>
+    <div class="word-grid" id="vocabList"></div>
+    <p class="hint" id="vocabEmptyHint" style="display:none;">No words saved yet — scan or type something below, and it'll show up here automatically.</p>
+  </div>
+
 
   <!-- INPUT PANEL -->
   <section class="panel">
@@ -365,12 +412,128 @@
 </main>
 
 <footer>
-  Runs entirely in your browser. OCR + kana readings are free and local; English meanings come from the free MyMemory API. Not perfect — when in doubt, tap "Jisho ↗" on any word.
+  Scanning is powered by Google's Gemini AI; kana readings run locally in your browser; English meanings come from the free MyMemory API. Not perfect — when in doubt, tap "Jisho ↗" on any word.
 </footer>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 (function(){
   "use strict";
+
+  // ---------- Supabase (accounts + saved vocabulary) ----------
+  const SUPABASE_URL = 'https://pcxoxdyfvajwokxecjit.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBjeG94ZHlmdmFqd29reGVjaml0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcwMTcwMTUsImV4cCI6MjEwMjU5MzAxNX0.QkiBj1jS1XGqaNw3aVv7Z3S1XnlhiFw56IJ-qzUovvM';
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const accountBarLoggedOut = document.getElementById('accountBarLoggedOut');
+  const accountBarLoggedIn = document.getElementById('accountBarLoggedIn');
+  const emailInput = document.getElementById('emailInput');
+  const signInBtn = document.getElementById('signInBtn');
+  const signInStatus = document.getElementById('signInStatus');
+  const signOutBtn = document.getElementById('signOutBtn');
+  const userEmailEl = document.getElementById('userEmail');
+  const vocabCountEl = document.getElementById('vocabCount');
+  const vocabPanel = document.getElementById('vocabPanel');
+  const vocabList = document.getElementById('vocabList');
+  const vocabEmptyHint = document.getElementById('vocabEmptyHint');
+  const refreshVocabBtn = document.getElementById('refreshVocabBtn');
+
+  let currentUser = null;
+
+  signInBtn.addEventListener('click', async () => {
+    const email = emailInput.value.trim();
+    if (!email || !email.includes('@')) { signInStatus.textContent = 'Enter a valid email first.'; return; }
+    signInBtn.disabled = true;
+    signInStatus.textContent = 'Sending…';
+    try {
+      const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.href } });
+      if (error) throw error;
+      signInStatus.textContent = 'Check your email for a sign-in link!';
+    } catch (err) {
+      signInStatus.textContent = 'Error: ' + (err.message || err);
+    } finally {
+      signInBtn.disabled = false;
+    }
+  });
+
+  signOutBtn.addEventListener('click', async () => {
+    await sb.auth.signOut();
+  });
+
+  sb.auth.onAuthStateChange((_event, session) => {
+    currentUser = session ? session.user : null;
+    if (currentUser) {
+      accountBarLoggedOut.style.display = 'none';
+      accountBarLoggedIn.style.display = 'flex';
+      userEmailEl.textContent = currentUser.email;
+      vocabPanel.style.display = 'block';
+      loadVocab();
+    } else {
+      accountBarLoggedOut.style.display = 'block';
+      accountBarLoggedIn.style.display = 'none';
+      vocabPanel.style.display = 'none';
+    }
+  });
+
+  async function saveWordsToVocab(words, sourceNote){
+    if (!currentUser || !words.length) return;
+    const rows = words.map(w => ({
+      user_id: currentUser.id,
+      surface: w.surface,
+      reading: w.reading,
+      romaji: w.romaji,
+      meaning: w.en || '',
+      source_note: sourceNote || null
+    }));
+    try {
+      await sb.from('vocab').insert(rows);
+      loadVocab();
+    } catch (err) {
+      console.error('Could not save vocab:', err);
+    }
+  }
+
+  async function loadVocab(){
+    if (!currentUser) return;
+    try {
+      const { data, error } = await sb
+        .from('vocab')
+        .select('*')
+        .eq('user_id', currentUser.id)
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (error) throw error;
+      vocabCountEl.textContent = data.length;
+      renderVocabList(data);
+    } catch (err) {
+      console.error('Could not load vocab:', err);
+    }
+  }
+
+  function renderVocabList(rows){
+    vocabList.innerHTML = '';
+    vocabEmptyHint.style.display = rows.length ? 'none' : 'block';
+    rows.forEach(r => {
+      const card = document.createElement('div');
+      card.className = 'word-card';
+      card.innerHTML =
+        '<div class="word-main">' +
+          '<div class="word-kanji jp">' + escapeHtml(r.surface) + '</div>' +
+          '<div class="word-kana jp">' + escapeHtml(r.reading || '') + '</div>' +
+          '<div class="word-romaji">' + escapeHtml(r.romaji || '') + '</div>' +
+        '</div>' +
+        '<div class="word-mid"><div class="word-en">' + escapeHtml(r.meaning || '') + '</div></div>' +
+        '<button class="ghost" data-id="' + r.id + '" style="font-size:11px;padding:6px 8px;">Remove</button>';
+      card.querySelector('button').addEventListener('click', async (e) => {
+        const id = e.target.getAttribute('data-id');
+        await sb.from('vocab').delete().eq('id', id);
+        loadVocab();
+      });
+      vocabList.appendChild(card);
+    });
+  }
+
+  refreshVocabBtn.addEventListener('click', loadVocab);
 
   // ---------- elements ----------
   const tabPhoto = document.getElementById('tabPhoto');
@@ -644,6 +807,7 @@
       try { sentenceEn = await translate(text); } catch(e) { sentenceEn = ''; }
 
       renderResults(wordResults, text, sentenceEn);
+      saveWordsToVocab(wordResults, text.slice(0, 60));
     } catch (err) {
       console.error(err);
       showError('Something went wrong (' + (err.message || 'unknown error') + '). Check your internet connection and try again.');
