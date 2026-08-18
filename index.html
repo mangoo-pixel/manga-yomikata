@@ -80,6 +80,34 @@
     min-width:180px;
   }
 
+  .notebook-btn{
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+    font-family:'Inter',sans-serif;
+    font-weight:700;
+    font-size:13.5px;
+    color:#fff;
+    background:var(--ink);
+    text-decoration:none;
+    padding:9px 14px;
+    border-radius:20px;
+    border:2px solid var(--ink);
+    transition:background .15s, color .15s, transform .1s;
+  }
+  .notebook-btn:hover{background:var(--red);border-color:var(--red);}
+  .notebook-btn:active{transform:scale(.97);}
+  .notebook-count{
+    background:var(--yellow);
+    color:var(--ink);
+    font-size:11.5px;
+    font-weight:800;
+    padding:1px 7px;
+    border-radius:10px;
+    min-width:18px;
+    text-align:center;
+  }
+
   main{max-width:720px;margin:0 auto;padding:0 20px;}
 
   /* ---------- panel (signature element) ---------- */
@@ -358,7 +386,7 @@
   <div class="account-bar" id="accountBarLoggedIn" style="display:none;">
     <span class="hint" style="margin:0;">Signed in as <b id="userEmail"></b></span>
     <div class="account-row">
-      <a class="ghost" href="notebook.html" style="text-decoration:none;display:inline-block;">📒 My Notebook (<span id="vocabCount">0</span>)</a>
+      <a class="notebook-btn" href="notebook.html">📒 My Notebook <span class="notebook-count" id="vocabCount">0</span></a>
       <button class="ghost" id="signOutBtn">Sign out</button>
     </div>
   </div>
@@ -420,7 +448,7 @@
 </main>
 
 <footer>
-  Scanning is powered by Google's Gemini AI; kana readings run locally in your browser; English meanings come from the free MyMemory API. Not perfect — when in doubt, tap "Jisho ↗" on any word.
+  Scanning and translation are powered by Google's Gemini AI; kana readings run locally in your browser. Not perfect — when in doubt, tap "Jisho ↗" on any word.
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -760,18 +788,18 @@
     return out;
   }
 
-  // ---------- translation (MyMemory, free & CORS-enabled) ----------
-  const trCache = new Map();
-  async function translate(text){
-    if (!text || !text.trim()) return '';
-    if (trCache.has(text)) return trCache.get(text);
-    const url = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(text.slice(0,480)) + '&langpair=ja|en';
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('translation request failed');
-    const data = await res.json();
-    const out = (data && data.responseData && data.responseData.translatedText) || '';
-    trCache.set(text, out);
-    return out;
+  // ---------- translation (Gemini, context-aware — one call per analyze) ----------
+  async function translateBatch(sentence, words){
+    const res = await fetch('/.netlify/functions/translate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sentence, words })
+    });
+    let data;
+    try { data = await res.json(); }
+    catch { throw new Error(res.status === 504 ? 'translation took too long — try again' : 'server error'); }
+    if (!res.ok) throw new Error(data.error || 'translation request failed');
+    return data; // { sentenceTranslation, meanings: { word: meaning } }
   }
 
   const POS_LABEL = {
@@ -806,24 +834,29 @@
         return;
       }
 
+      const dictForms = tokens.map(t => (t.basic_form && t.basic_form !== '*') ? t.basic_form : t.surface_form);
+
       analyzeStatusText.textContent = 'Looking up meanings…';
-      const wordResults = await Promise.all(tokens.map(async t => {
+      let meanings = {}, sentenceEn = '';
+      try {
+        const result = await translateBatch(text, dictForms);
+        meanings = result.meanings || {};
+        sentenceEn = result.sentenceTranslation || '';
+      } catch (e) {
+        console.error(e);
+        showError('Meanings could not be loaded (' + (e.message || 'unknown error') + '). Readings and romaji below are still accurate.');
+      }
+
+      const wordResults = tokens.map((t, i) => {
         const reading = t.reading || t.surface_form;
-        const romaji = katakanaToRomaji(reading);
-        let en = '';
-        try { en = await translate(t.basic_form && t.basic_form !== '*' ? t.basic_form : t.surface_form); }
-        catch(e) { en = ''; }
         return {
           surface: t.surface_form,
           reading,
-          romaji,
-          en,
+          romaji: katakanaToRomaji(reading),
+          en: meanings[dictForms[i]] || '',
           pos: POS_LABEL[t.pos] || ''
         };
-      }));
-
-      let sentenceEn = '';
-      try { sentenceEn = await translate(text); } catch(e) { sentenceEn = ''; }
+      });
 
       renderResults(wordResults, text, sentenceEn);
     } catch (err) {
