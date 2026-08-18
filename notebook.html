@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Notebook — Manga Yomikata</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F2EEE4; --ink:#171512; --ink-soft:#57524A; --line:#171512;
+    --line-soft:#D9D2C2; --red:#C6362C; --yellow:#F0C93B; --card:#FBFAF6;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{background:var(--paper);color:var(--ink);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;padding-bottom:60px;}
+  .jp{font-family:'Noto Sans JP','Inter',sans-serif;}
+
+  header{padding:28px 20px 16px;max-width:720px;margin:0 auto;}
+  .back-link{font-size:13px;font-weight:600;color:var(--ink-soft);text-decoration:none;display:inline-block;margin-bottom:10px;}
+  .back-link:hover{color:var(--ink);}
+  .eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--red);font-weight:700;margin:0 0 6px;}
+  h1{font-family:'Bungee',sans-serif;font-weight:400;font-size:clamp(26px,7vw,38px);line-height:1.05;margin:0 0 6px;}
+
+  main{max-width:720px;margin:0 auto;padding:0 20px;}
+
+  .panel{
+    background:var(--card);border:3px solid var(--line);border-radius:4px;
+    box-shadow:6px 6px 0 var(--ink);padding:20px;margin-top:20px;position:relative;
+  }
+  .panel-tab{
+    position:absolute;top:-13px;left:16px;background:var(--ink);color:var(--paper);
+    font-family:'Bungee',sans-serif;font-size:11px;letter-spacing:.08em;padding:4px 10px;border-radius:3px;
+  }
+
+  .account-bar{
+    margin-top:14px;padding:12px 14px;background:#fff;border:1.5px solid var(--line-soft);
+    border-radius:4px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+  }
+  .account-row{display:flex;gap:8px;flex-wrap:wrap;}
+  .account-bar input[type=email]{
+    font-family:'Inter',sans-serif;font-size:13px;padding:8px 10px;border:1.5px solid var(--ink);
+    border-radius:3px;min-width:180px;
+  }
+  .hint{font-size:12.5px;color:var(--ink-soft);}
+
+  button.ghost{
+    font-family:'Inter',sans-serif;font-weight:600;font-size:13px;padding:9px 14px;
+    background:transparent;color:var(--ink);border:2px solid var(--ink);border-radius:3px;cursor:pointer;
+  }
+
+  .results-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+  .results-head h2{font-family:'Bungee',sans-serif;font-weight:400;font-size:18px;margin:0;}
+
+  .word-grid{display:flex;flex-direction:column;gap:10px;}
+  .word-card{
+    background:#fff;border:2px solid var(--ink);border-radius:4px;padding:12px 14px;
+    display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  }
+  .word-main{min-width:84px;}
+  .word-kanji{font-family:'Noto Sans JP',sans-serif;font-weight:700;font-size:22px;line-height:1.15;}
+  .word-kana{font-family:'Noto Sans JP',sans-serif;font-size:13px;color:var(--ink-soft);}
+  .word-romaji{font-size:13px;font-weight:700;color:var(--red);text-transform:lowercase;}
+  .word-mid{flex:1;min-width:140px;}
+  .word-en{font-size:14.5px;}
+  .word-source{font-size:11px;color:var(--ink-soft);margin-top:3px;}
+  .remove-btn{
+    font-family:'Inter',sans-serif;font-size:11px;font-weight:600;color:var(--ink-soft);
+    background:transparent;border:1.5px solid var(--line-soft);border-radius:3px;padding:6px 8px;cursor:pointer;
+  }
+  .remove-btn:hover{border-color:var(--red);color:var(--red);}
+
+  .empty-state{text-align:center;padding:30px 10px;color:var(--ink-soft);font-size:14px;}
+
+  .search-row{margin-bottom:14px;}
+  .search-row input{
+    width:100%;font-family:'Inter',sans-serif;font-size:14px;padding:10px 12px;
+    border:2px solid var(--ink);border-radius:3px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="back-link" href="index.html">← Back to scanner</a>
+  <p class="eyebrow">Your Notebook</p>
+  <h1>MY VOCABULARY</h1>
+
+  <div class="account-bar" id="accountBarLoggedOut">
+    <span class="hint" style="margin:0;">Sign in to see your saved words:</span>
+    <div class="account-row">
+      <input type="email" id="emailInput" placeholder="you@email.com">
+      <button class="ghost" id="signInBtn">Send magic link</button>
+    </div>
+  </div>
+  <p class="hint" id="signInStatus"></p>
+
+  <div class="account-bar" id="accountBarLoggedIn" style="display:none;">
+    <span class="hint" style="margin:0;">Signed in as <b id="userEmail"></b></span>
+    <button class="ghost" id="signOutBtn">Sign out</button>
+  </div>
+</header>
+
+<main>
+  <section class="panel" id="notebookPanel" style="display:none;">
+    <span class="panel-tab">SAVED WORDS</span>
+    <div class="results-head">
+      <h2><span id="vocabCount">0</span> words</h2>
+      <button class="ghost" id="refreshBtn">Refresh</button>
+    </div>
+    <div class="search-row">
+      <input type="text" id="searchInput" placeholder="Filter your notebook…">
+    </div>
+    <div class="word-grid" id="vocabList"></div>
+    <p class="empty-state" id="emptyHint" style="display:none;">No words saved yet — go back to the scanner, look something up, and tap "Save" on the words you want to keep.</p>
+  </section>
+
+  <section class="panel" id="loggedOutPanel">
+    <p class="hint" style="text-align:center;padding:20px 0;">Sign in above to view your saved vocabulary.</p>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  const SUPABASE_URL = 'https://pcxoxdyfvajwokxecjit.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBjeG94ZHlmdmFqd29reGVjaml0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcwMTcwMTUsImV4cCI6MjEwMjU5MzAxNX0.QkiBj1jS1XGqaNw3aVv7Z3S1XnlhiFw56IJ-qzUovvM';
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const accountBarLoggedOut = document.getElementById('accountBarLoggedOut');
+  const accountBarLoggedIn = document.getElementById('accountBarLoggedIn');
+  const emailInput = document.getElementById('emailInput');
+  const signInBtn = document.getElementById('signInBtn');
+  const signInStatus = document.getElementById('signInStatus');
+  const signOutBtn = document.getElementById('signOutBtn');
+  const userEmailEl = document.getElementById('userEmail');
+  const notebookPanel = document.getElementById('notebookPanel');
+  const loggedOutPanel = document.getElementById('loggedOutPanel');
+  const vocabList = document.getElementById('vocabList');
+  const vocabCountEl = document.getElementById('vocabCount');
+  const emptyHint = document.getElementById('emptyHint');
+  const refreshBtn = document.getElementById('refreshBtn');
+  const searchInput = document.getElementById('searchInput');
+
+  let currentUser = null;
+  let allRows = [];
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  signInBtn.addEventListener('click', async () => {
+    const email = emailInput.value.trim();
+    if (!email || !email.includes('@')) { signInStatus.textContent = 'Enter a valid email first.'; return; }
+    signInBtn.disabled = true;
+    signInStatus.textContent = 'Sending…';
+    try {
+      const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.href } });
+      if (error) throw error;
+      signInStatus.textContent = 'Check your email for a sign-in link!';
+    } catch (err) {
+      signInStatus.textContent = 'Error: ' + (err.message || err);
+    } finally {
+      signInBtn.disabled = false;
+    }
+  });
+
+  signOutBtn.addEventListener('click', async () => { await sb.auth.signOut(); });
+
+  sb.auth.onAuthStateChange((_event, session) => {
+    currentUser = session ? session.user : null;
+    if (currentUser) {
+      accountBarLoggedOut.style.display = 'none';
+      accountBarLoggedIn.style.display = 'flex';
+      userEmailEl.textContent = currentUser.email;
+      notebookPanel.style.display = 'block';
+      loggedOutPanel.style.display = 'none';
+      loadVocab();
+    } else {
+      accountBarLoggedOut.style.display = 'block';
+      accountBarLoggedIn.style.display = 'none';
+      notebookPanel.style.display = 'none';
+      loggedOutPanel.style.display = 'block';
+    }
+  });
+
+  async function loadVocab(){
+    if (!currentUser) return;
+    try {
+      const { data, error } = await sb
+        .from('vocab')
+        .select('*')
+        .eq('user_id', currentUser.id)
+        .order('created_at', { ascending: false })
+        .limit(500);
+      if (error) throw error;
+      allRows = data || [];
+      vocabCountEl.textContent = allRows.length;
+      renderList(allRows);
+    } catch (err) {
+      console.error('Could not load vocab:', err);
+    }
+  }
+
+  function renderList(rows){
+    vocabList.innerHTML = '';
+    emptyHint.style.display = rows.length ? 'none' : 'block';
+    rows.forEach(r => {
+      const card = document.createElement('div');
+      card.className = 'word-card';
+      card.innerHTML =
+        '<div class="word-main">' +
+          '<div class="word-kanji jp">' + escapeHtml(r.surface) + '</div>' +
+          '<div class="word-kana jp">' + escapeHtml(r.reading || '') + '</div>' +
+          '<div class="word-romaji">' + escapeHtml(r.romaji || '') + '</div>' +
+        '</div>' +
+        '<div class="word-mid">' +
+          '<div class="word-en">' + escapeHtml(r.meaning || '') + '</div>' +
+          (r.source_note ? '<div class="word-source">from: ' + escapeHtml(r.source_note) + '</div>' : '') +
+        '</div>' +
+        '<button class="remove-btn" data-id="' + r.id + '">Remove</button>';
+      card.querySelector('.remove-btn').addEventListener('click', async (e) => {
+        const id = e.target.getAttribute('data-id');
+        e.target.textContent = '…';
+        e.target.disabled = true;
+        await sb.from('vocab').delete().eq('id', id);
+        loadVocab();
+      });
+      vocabList.appendChild(card);
+    });
+  }
+
+  searchInput.addEventListener('input', () => {
+    const q = searchInput.value.trim().toLowerCase();
+    if (!q) { renderList(allRows); return; }
+    renderList(allRows.filter(r =>
+      (r.surface || '').toLowerCase().includes(q) ||
+      (r.reading || '').toLowerCase().includes(q) ||
+      (r.romaji || '').toLowerCase().includes(q) ||
+      (r.meaning || '').toLowerCase().includes(q)
+    ));
+  });
+
+  refreshBtn.addEventListener('click', loadVocab);
+})();
+</script>
+</body>
+</html>
