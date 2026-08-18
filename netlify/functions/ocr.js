@@ -24,7 +24,7 @@ exports.handler = async (event) => {
       'Output ONLY the raw Japanese text — no translation, no romaji, no notes, no markdown, no quotation marks.';
 
     const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
