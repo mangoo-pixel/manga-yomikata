@@ -312,6 +312,22 @@
   }
   .jisho-link:hover{background:var(--ink);color:var(--paper);}
 
+  .word-actions{display:flex;flex-direction:column;gap:6px;align-items:stretch;}
+  .save-btn{
+    font-family:'Inter',sans-serif;
+    font-size:12px;
+    font-weight:700;
+    color:#fff;
+    background:var(--red);
+    border:1.5px solid var(--ink);
+    border-radius:3px;
+    padding:6px 9px;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .save-btn:disabled{cursor:default;opacity:.85;}
+  .save-btn.saved{background:var(--ink);}
+
   footer{
     max-width:720px;margin:36px auto 0;padding:0 20px;
     font-size:12px;color:var(--ink-soft);
@@ -340,23 +356,15 @@
   </div>
 
   <div class="account-bar" id="accountBarLoggedIn" style="display:none;">
-    <span class="hint" style="margin:0;">Signed in as <b id="userEmail"></b> · <span id="vocabCount">0</span> words saved</span>
-    <button class="ghost" id="signOutBtn">Sign out</button>
+    <span class="hint" style="margin:0;">Signed in as <b id="userEmail"></b></span>
+    <div class="account-row">
+      <a class="ghost" href="notebook.html" style="text-decoration:none;display:inline-block;">📒 My Notebook (<span id="vocabCount">0</span>)</a>
+      <button class="ghost" id="signOutBtn">Sign out</button>
+    </div>
   </div>
 </header>
 
 <main>
-
-  <div class="panel" id="vocabPanel" style="display:none;">
-    <span class="panel-tab">YOUR NOTEBOOK</span>
-    <div class="results-head">
-      <h2>My Vocabulary</h2>
-      <button class="ghost" id="refreshVocabBtn">Refresh</button>
-    </div>
-    <div class="word-grid" id="vocabList"></div>
-    <p class="hint" id="vocabEmptyHint" style="display:none;">No words saved yet — scan or type something below, and it'll show up here automatically.</p>
-  </div>
-
 
   <!-- INPUT PANEL -->
   <section class="panel">
@@ -433,10 +441,6 @@
   const signOutBtn = document.getElementById('signOutBtn');
   const userEmailEl = document.getElementById('userEmail');
   const vocabCountEl = document.getElementById('vocabCount');
-  const vocabPanel = document.getElementById('vocabPanel');
-  const vocabList = document.getElementById('vocabList');
-  const vocabEmptyHint = document.getElementById('vocabEmptyHint');
-  const refreshVocabBtn = document.getElementById('refreshVocabBtn');
 
   let currentUser = null;
 
@@ -466,74 +470,56 @@
       accountBarLoggedOut.style.display = 'none';
       accountBarLoggedIn.style.display = 'flex';
       userEmailEl.textContent = currentUser.email;
-      vocabPanel.style.display = 'block';
-      loadVocab();
+      refreshVocabCount();
     } else {
       accountBarLoggedOut.style.display = 'block';
       accountBarLoggedIn.style.display = 'none';
-      vocabPanel.style.display = 'none';
     }
   });
 
-  async function saveWordsToVocab(words, sourceNote){
-    if (!currentUser || !words.length) return;
-    const rows = words.map(w => ({
-      user_id: currentUser.id,
-      surface: w.surface,
-      reading: w.reading,
-      romaji: w.romaji,
-      meaning: w.en || '',
-      source_note: sourceNote || null
-    }));
-    try {
-      await sb.from('vocab').insert(rows);
-      loadVocab();
-    } catch (err) {
-      console.error('Could not save vocab:', err);
-    }
-  }
-
-  async function loadVocab(){
+  async function refreshVocabCount(){
     if (!currentUser) return;
     try {
-      const { data, error } = await sb
+      const { count, error } = await sb
         .from('vocab')
-        .select('*')
-        .eq('user_id', currentUser.id)
-        .order('created_at', { ascending: false })
-        .limit(200);
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', currentUser.id);
       if (error) throw error;
-      vocabCountEl.textContent = data.length;
-      renderVocabList(data);
+      vocabCountEl.textContent = count ?? 0;
     } catch (err) {
-      console.error('Could not load vocab:', err);
+      console.error('Could not load vocab count:', err);
     }
   }
 
-  function renderVocabList(rows){
-    vocabList.innerHTML = '';
-    vocabEmptyHint.style.display = rows.length ? 'none' : 'block';
-    rows.forEach(r => {
-      const card = document.createElement('div');
-      card.className = 'word-card';
-      card.innerHTML =
-        '<div class="word-main">' +
-          '<div class="word-kanji jp">' + escapeHtml(r.surface) + '</div>' +
-          '<div class="word-kana jp">' + escapeHtml(r.reading || '') + '</div>' +
-          '<div class="word-romaji">' + escapeHtml(r.romaji || '') + '</div>' +
-        '</div>' +
-        '<div class="word-mid"><div class="word-en">' + escapeHtml(r.meaning || '') + '</div></div>' +
-        '<button class="ghost" data-id="' + r.id + '" style="font-size:11px;padding:6px 8px;">Remove</button>';
-      card.querySelector('button').addEventListener('click', async (e) => {
-        const id = e.target.getAttribute('data-id');
-        await sb.from('vocab').delete().eq('id', id);
-        loadVocab();
-      });
-      vocabList.appendChild(card);
-    });
+  // Saves one word when its "Save" button is clicked in the results list.
+  async function saveOneWord(word, sourceNote, btnEl){
+    if (!currentUser) {
+      showError('Sign in at the top of the page first, then you can save words to your notebook.');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    btnEl.disabled = true;
+    btnEl.textContent = 'Saving…';
+    try {
+      const { error } = await sb.from('vocab').insert([{
+        user_id: currentUser.id,
+        surface: word.surface,
+        reading: word.reading,
+        romaji: word.romaji,
+        meaning: word.en || '',
+        source_note: sourceNote || null
+      }]);
+      if (error) throw error;
+      btnEl.textContent = '✓ Saved';
+      btnEl.classList.add('saved');
+      refreshVocabCount();
+    } catch (err) {
+      console.error(err);
+      btnEl.textContent = 'Save';
+      btnEl.disabled = false;
+      showError('Could not save that word — try again.');
+    }
   }
-
-  refreshVocabBtn.addEventListener('click', loadVocab);
 
   // ---------- elements ----------
   const tabPhoto = document.getElementById('tabPhoto');
@@ -840,7 +826,6 @@
       try { sentenceEn = await translate(text); } catch(e) { sentenceEn = ''; }
 
       renderResults(wordResults, text, sentenceEn);
-      saveWordsToVocab(wordResults, text.slice(0, 60));
     } catch (err) {
       console.error(err);
       showError('Something went wrong (' + (err.message || 'unknown error') + '). Check your internet connection and try again.');
@@ -872,7 +857,13 @@
           '<div class="word-en">' + (w.en ? escapeHtml(w.en) : '<span style="color:#a39d8f;">meaning unavailable</span>') + '</div>' +
           (w.pos ? '<span class="word-pos">' + escapeHtml(w.pos) + '</span>' : '') +
         '</div>' +
-        '<a class="jisho-link" target="_blank" rel="noopener" href="https://jisho.org/search/' + encodeURIComponent(w.surface) + '">Jisho ↗</a>';
+        '<div class="word-actions">' +
+          '<button class="save-btn">Save</button>' +
+          '<a class="jisho-link" target="_blank" rel="noopener" href="https://jisho.org/search/' + encodeURIComponent(w.surface) + '">Jisho ↗</a>' +
+        '</div>';
+      card.querySelector('.save-btn').addEventListener('click', (e) => {
+        saveOneWord(w, originalText.slice(0, 60), e.target);
+      });
       wordGrid.appendChild(card);
     });
 
