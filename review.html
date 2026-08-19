@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Review — Manga Yomikata</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F2EEE4; --ink:#171512; --ink-soft:#57524A; --line:#171512;
+    --line-soft:#D9D2C2; --red:#C6362C; --yellow:#F0C93B; --green:#3F7A4F; --card:#FBFAF6;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{background:var(--paper);color:var(--ink);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;padding-bottom:60px;min-height:100vh;}
+  .jp{font-family:'Noto Sans JP','Inter',sans-serif;}
+
+  header{padding:28px 20px 16px;max-width:560px;margin:0 auto;}
+  .back-link{font-size:13px;font-weight:600;color:var(--ink-soft);text-decoration:none;display:inline-block;margin-bottom:10px;}
+  .back-link:hover{color:var(--ink);}
+  .eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--red);font-weight:700;margin:0 0 6px;}
+  h1{font-family:'Bungee',sans-serif;font-weight:400;font-size:clamp(26px,7vw,36px);line-height:1.05;margin:0 0 6px;}
+
+  main{max-width:560px;margin:0 auto;padding:0 20px;}
+
+  .account-bar{
+    margin-top:14px;padding:12px 14px;background:#fff;border:1.5px solid var(--line-soft);
+    border-radius:4px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+  }
+  .account-row{display:flex;gap:8px;flex-wrap:wrap;}
+  .account-bar input[type=email]{
+    font-family:'Inter',sans-serif;font-size:13px;padding:8px 10px;border:1.5px solid var(--ink);
+    border-radius:3px;min-width:180px;
+  }
+  .hint{font-size:12.5px;color:var(--ink-soft);}
+  button.ghost{
+    font-family:'Inter',sans-serif;font-weight:600;font-size:13px;padding:9px 14px;
+    background:transparent;color:var(--ink);border:2px solid var(--ink);border-radius:3px;cursor:pointer;
+  }
+
+  .panel{
+    background:var(--card);border:3px solid var(--line);border-radius:4px;
+    box-shadow:6px 6px 0 var(--ink);padding:24px 20px;margin-top:20px;position:relative;
+  }
+  .panel-tab{
+    position:absolute;top:-13px;left:16px;background:var(--ink);color:var(--paper);
+    font-family:'Bungee',sans-serif;font-size:11px;letter-spacing:.08em;padding:4px 10px;border-radius:3px;
+  }
+
+  .progress-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;}
+  .progress-count{font-size:13px;color:var(--ink-soft);font-weight:600;}
+
+  .card-stage{
+    min-height:220px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    cursor:pointer;
+    user-select:none;
+  }
+  .card-word{
+    font-family:'Noto Sans JP',sans-serif;
+    font-weight:700;
+    font-size:48px;
+    line-height:1.2;
+    margin-bottom:8px;
+  }
+  .card-hint{font-size:13px;color:var(--ink-soft);margin-top:14px;}
+
+  .card-back{display:none;}
+  .card-back.show{display:block;}
+  .card-reading{font-family:'Noto Sans JP',sans-serif;font-size:18px;color:var(--ink-soft);margin-bottom:4px;}
+  .card-romaji{font-size:15px;font-weight:700;color:var(--red);margin-bottom:14px;}
+  .card-meaning{font-size:20px;font-weight:600;}
+  .card-source{font-size:12px;color:var(--ink-soft);margin-top:10px;}
+
+  .grade-row{display:flex;gap:10px;margin-top:22px;}
+  .grade-btn{
+    flex:1;
+    font-family:'Inter',sans-serif;
+    font-weight:700;
+    font-size:14px;
+    padding:14px 8px;
+    border:2px solid var(--ink);
+    border-radius:4px;
+    cursor:pointer;
+    background:#fff;
+  }
+  .grade-btn.again{color:var(--red);}
+  .grade-btn.again:hover{background:var(--red);color:#fff;}
+  .grade-btn.good{color:var(--ink);}
+  .grade-btn.good:hover{background:var(--ink);color:#fff;}
+  .grade-btn.easy{color:var(--green);}
+  .grade-btn.easy:hover{background:var(--green);color:#fff;border-color:var(--green);}
+
+  .empty-state{text-align:center;padding:30px 10px;}
+  .empty-state .big{font-size:44px;margin-bottom:10px;}
+  .empty-state p{color:var(--ink-soft);font-size:14px;max-width:32ch;margin:6px auto 0;}
+
+  .done-state{text-align:center;padding:20px 10px;}
+</style>
+</head>
+<body>
+
+<header>
+  <a class="back-link" href="index.html">← Back to scanner</a>
+  <p class="eyebrow">Practice</p>
+  <h1>REVIEW</h1>
+
+  <div class="account-bar" id="accountBarLoggedOut">
+    <span class="hint" style="margin:0;">Sign in to review your saved words:</span>
+    <div class="account-row">
+      <input type="email" id="emailInput" placeholder="you@email.com">
+      <button class="ghost" id="signInBtn">Send magic link</button>
+    </div>
+  </div>
+  <p class="hint" id="signInStatus"></p>
+
+  <div class="account-bar" id="accountBarLoggedIn" style="display:none;">
+    <span class="hint" style="margin:0;">Signed in as <b id="userEmail"></b></span>
+    <a class="ghost" href="notebook.html" style="text-decoration:none;">📒 My Notebook</a>
+  </div>
+</header>
+
+<main>
+  <section class="panel" id="reviewPanel" style="display:none;">
+    <span class="panel-tab">FLASHCARDS</span>
+
+    <div id="loadingState" class="hint" style="text-align:center;padding:30px 0;">Loading your words…</div>
+
+    <div id="emptyState" class="empty-state" style="display:none;">
+      <div class="big">📭</div>
+      <p>Nothing due for review right now. Go save a few more words from the scanner, or come back later — new words become due for review over time.</p>
+    </div>
+
+    <div id="doneState" class="done-state" style="display:none;">
+      <div class="big">🎉</div>
+      <h2 style="font-family:'Bungee',sans-serif;font-weight:400;font-size:22px;">All caught up!</h2>
+      <p class="hint">You reviewed everything due for now. Nice work.</p>
+    </div>
+
+    <div id="cardArea" style="display:none;">
+      <div class="progress-row">
+        <span class="progress-count"><span id="cardIndex">1</span> / <span id="cardTotal">1</span></span>
+        <button class="ghost" id="shuffleBtn" style="font-size:11px;padding:6px 10px;">🔀 Shuffle</button>
+      </div>
+
+      <div class="card-stage" id="cardStage">
+        <div id="cardFront">
+          <div class="card-word jp" id="frontWord"></div>
+          <div class="card-hint">Tap the card to reveal the answer</div>
+        </div>
+        <div class="card-back" id="cardBackEl">
+          <div class="card-reading jp" id="backReading"></div>
+          <div class="card-romaji" id="backRomaji"></div>
+          <div class="card-meaning" id="backMeaning"></div>
+          <div class="card-source" id="backSource"></div>
+        </div>
+      </div>
+
+      <div class="grade-row" id="gradeRow" style="display:none;">
+        <button class="grade-btn again" data-grade="again">😵 Again</button>
+        <button class="grade-btn good" data-grade="good">🙂 Good</button>
+        <button class="grade-btn easy" data-grade="easy">😎 Easy</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="loggedOutPanel">
+    <p class="hint" style="text-align:center;padding:20px 0;">Sign in above to review your saved vocabulary.</p>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  const SUPABASE_URL = 'https://pcxoxdyfvajwokxecjit.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBjeG94ZHlmdmFqd29reGVjaml0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcwMTcwMTUsImV4cCI6MjEwMjU5MzAxNX0.QkiBj1jS1XGqaNw3aVv7Z3S1XnlhiFw56IJ-qzUovvM';
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const accountBarLoggedOut = document.getElementById('accountBarLoggedOut');
+  const accountBarLoggedIn = document.getElementById('accountBarLoggedIn');
+  const emailInput = document.getElementById('emailInput');
+  const signInBtn = document.getElementById('signInBtn');
+  const signInStatus = document.getElementById('signInStatus');
+  const userEmailEl = document.getElementById('userEmail');
+  const reviewPanel = document.getElementById('reviewPanel');
+  const loggedOutPanel = document.getElementById('loggedOutPanel');
+  const loadingState = document.getElementById('loadingState');
+  const emptyState = document.getElementById('emptyState');
+  const doneState = document.getElementById('doneState');
+  const cardArea = document.getElementById('cardArea');
+  const cardStage = document.getElementById('cardStage');
+  const cardFront = document.getElementById('cardFront');
+  const cardBackEl = document.getElementById('cardBackEl');
+  const gradeRow = document.getElementById('gradeRow');
+  const frontWord = document.getElementById('frontWord');
+  const backReading = document.getElementById('backReading');
+  const backRomaji = document.getElementById('backRomaji');
+  const backMeaning = document.getElementById('backMeaning');
+  const backSource = document.getElementById('backSource');
+  const cardIndexEl = document.getElementById('cardIndex');
+  const cardTotalEl = document.getElementById('cardTotal');
+  const shuffleBtn = document.getElementById('shuffleBtn');
+
+  let currentUser = null;
+  let deck = [];
+  let pos = 0;
+  let revealed = false;
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  signInBtn.addEventListener('click', async () => {
+    const email = emailInput.value.trim();
+    if (!email || !email.includes('@')) { signInStatus.textContent = 'Enter a valid email first.'; return; }
+    signInBtn.disabled = true;
+    signInStatus.textContent = 'Sending…';
+    try {
+      const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.href } });
+      if (error) throw error;
+      signInStatus.textContent = 'Check your email for a sign-in link!';
+    } catch (err) {
+      signInStatus.textContent = 'Error: ' + (err.message || err);
+    } finally {
+      signInBtn.disabled = false;
+    }
+  });
+
+  sb.auth.onAuthStateChange((_event, session) => {
+    currentUser = session ? session.user : null;
+    if (currentUser) {
+      accountBarLoggedOut.style.display = 'none';
+      accountBarLoggedIn.style.display = 'flex';
+      userEmailEl.textContent = currentUser.email;
+      reviewPanel.style.display = 'block';
+      loggedOutPanel.style.display = 'none';
+      loadDeck();
+    } else {
+      accountBarLoggedOut.style.display = 'block';
+      accountBarLoggedIn.style.display = 'none';
+      reviewPanel.style.display = 'none';
+      loggedOutPanel.style.display = 'block';
+    }
+  });
+
+  async function loadDeck(){
+    loadingState.style.display = 'block';
+    emptyState.style.display = 'none';
+    doneState.style.display = 'none';
+    cardArea.style.display = 'none';
+    try {
+      const { data, error } = await sb
+        .from('vocab')
+        .select('*')
+        .eq('user_id', currentUser.id)
+        .lte('next_review', new Date().toISOString())
+        .order('next_review', { ascending: true })
+        .limit(30);
+      if (error) throw error;
+      deck = data || [];
+      pos = 0;
+      loadingState.style.display = 'none';
+      if (!deck.length) {
+        emptyState.style.display = 'block';
+      } else {
+        cardArea.style.display = 'block';
+        showCard();
+      }
+    } catch (err) {
+      console.error(err);
+      loadingState.textContent = 'Could not load your review deck — try refreshing.';
+    }
+  }
+
+  shuffleBtn.addEventListener('click', () => {
+    for (let i = deck.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [deck[i], deck[j]] = [deck[j], deck[i]];
+    }
+    pos = 0;
+    showCard();
+  });
+
+  function showCard(){
+    if (pos >= deck.length) {
+      cardArea.style.display = 'none';
+      doneState.style.display = 'block';
+      return;
+    }
+    const card = deck[pos];
+    revealed = false;
+    cardFront.style.display = 'block';
+    cardBackEl.classList.remove('show');
+    gradeRow.style.display = 'none';
+    frontWord.textContent = card.surface;
+    backReading.textContent = card.reading || '';
+    backRomaji.textContent = card.romaji || '';
+    backMeaning.textContent = card.meaning || '(no meaning saved)';
+    backSource.textContent = card.source_note ? 'from: ' + card.source_note : '';
+    cardIndexEl.textContent = pos + 1;
+    cardTotalEl.textContent = deck.length;
+  }
+
+  cardStage.addEventListener('click', () => {
+    if (revealed) return;
+    revealed = true;
+    cardFront.style.display = 'none';
+    cardBackEl.classList.add('show');
+    gradeRow.style.display = 'flex';
+  });
+
+  // Simplified spaced repetition: grade adjusts the next interval.
+  // again -> reset to 1 day; good -> roughly double the interval; easy -> triple it.
+  document.querySelectorAll('.grade-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const grade = btn.getAttribute('data-grade');
+      const card = deck[pos];
+      let interval = card.interval_days || 1;
+      if (grade === 'again') interval = 1;
+      else if (grade === 'good') interval = Math.max(1, Math.round(interval * 2));
+      else interval = Math.max(1, Math.round(interval * 3));
+
+      const nextReview = new Date(Date.now() + interval * 24 * 60 * 60 * 1000).toISOString();
+
+      try {
+        await sb.from('vocab').update({
+          interval_days: interval,
+          next_review: nextReview,
+          times_reviewed: (card.times_reviewed || 0) + 1
+        }).eq('id', card.id);
+      } catch (err) {
+        console.error('Could not save review progress:', err);
+      }
+
+      pos++;
+      showCard();
+    });
+  });
+})();
+</script>
+</body>
+</html>
