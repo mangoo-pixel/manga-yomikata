@@ -80,23 +80,25 @@
     min-width:180px;
   }
 
-  .notebook-btn{
+  .pill-btn{
     display:inline-flex;
     align-items:center;
     gap:7px;
     font-family:'Inter',sans-serif;
     font-weight:700;
     font-size:13.5px;
-    color:#fff;
-    background:var(--ink);
     text-decoration:none;
     padding:9px 14px;
     border-radius:20px;
     border:2px solid var(--ink);
     transition:background .15s, color .15s, transform .1s;
+    cursor:pointer;
   }
-  .notebook-btn:hover{background:var(--red);border-color:var(--red);}
-  .notebook-btn:active{transform:scale(.97);}
+  .pill-btn:active{transform:scale(.97);}
+  .pill-btn.filled{background:var(--ink);color:#fff;}
+  .pill-btn.filled:hover{background:var(--red);border-color:var(--red);}
+  .pill-btn.outline{background:transparent;color:var(--ink);}
+  .pill-btn.outline:hover{background:var(--ink);color:#fff;}
   .notebook-count{
     background:var(--yellow);
     color:var(--ink);
@@ -386,8 +388,8 @@
   <div class="account-bar" id="accountBarLoggedIn" style="display:none;">
     <span class="hint" style="margin:0;">Signed in as <b id="userEmail"></b></span>
     <div class="account-row">
-      <a class="notebook-btn" href="notebook.html">📒 My Notebook <span class="notebook-count" id="vocabCount">0</span></a>
-      <a class="ghost" href="review.html" style="text-decoration:none;">🎴 Review</a>
+      <a class="pill-btn filled" href="notebook.html">📒 My Notebook <span class="notebook-count" id="vocabCount">0</span></a>
+      <a class="pill-btn outline" href="review.html">🎴 Review</a>
       <button class="ghost" id="signOutBtn">Sign out</button>
     </div>
   </div>
@@ -641,16 +643,17 @@
 
   async function handleImage(file){
     hideError();
-    const url = URL.createObjectURL(file);
-    preview.src = url; preview.style.display = 'block';
+    // temporary blob preview while we process, swapped for a persistable data URL below
+    preview.src = URL.createObjectURL(file); preview.style.display = 'block';
     clearImageBtn.style.display = '';
 
     ocrStatus.classList.add('show');
     ocrStatusText.textContent = 'Preparing image…';
     try {
       const resized = await resizeForUpload(file);
-      ocrStatusText.textContent = 'Reading text from image…';
       const imageBase64 = await fileToBase64(resized);
+      preview.src = 'data:image/jpeg;base64,' + imageBase64; // persists across page reloads
+      ocrStatusText.textContent = 'Reading text from image…';
       const res = await fetch('/.netlify/functions/ocr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -874,13 +877,21 @@
     }
   });
 
-  function renderResults(words, originalText, sentenceEn){
+  function renderResults(words, originalText, sentenceEn, skipSave){
     wordGrid.innerHTML = '';
     if (sentenceEn) {
       sentenceTr.style.display = 'block';
       sentenceTr.innerHTML = '<b>Full line:</b> ' + escapeHtml(sentenceEn);
     } else {
       sentenceTr.style.display = 'none';
+    }
+
+    if (!skipSave) {
+      try {
+        sessionStorage.setItem('lastScan', JSON.stringify({
+          text: originalText, words, sentenceEn, imagePreview: preview.style.display === 'block' ? preview.src : null
+        }));
+      } catch (e) { /* storage full or unavailable — not critical */ }
     }
 
     words.forEach(w => {
@@ -901,19 +912,29 @@
           '<a class="jisho-link" target="_blank" rel="noopener" href="https://jisho.org/search/' + encodeURIComponent(w.surface) + '">Jisho ↗</a>' +
         '</div>';
       card.querySelector('.save-btn').addEventListener('click', (e) => {
-        saveOneWord(w, originalText.slice(0, 60), e.target);
+        saveOneWord(w, findSourceLine(originalText, w.surface), e.target);
       });
       wordGrid.appendChild(card);
     });
 
     results.style.display = 'block';
-    results.scrollIntoView({ behavior:'smooth', block:'start' });
+    if (!skipSave) results.scrollIntoView({ behavior:'smooth', block:'start' });
   }
 
   clearResultsBtn.addEventListener('click', () => {
     results.style.display = 'none';
     wordGrid.innerHTML = '';
+    try { sessionStorage.removeItem('lastScan'); } catch (e) {}
   });
+
+  // Finds the specific line the word actually appeared in, rather than
+  // blindly using the start of the whole scanned block (which could be a
+  // different speech bubble entirely on multi-line scans).
+  function findSourceLine(fullText, surface){
+    const lines = fullText.split(/\n+/).map(l => l.trim()).filter(Boolean);
+    const match = lines.find(l => l.includes(surface));
+    return (match || fullText).slice(0, 80);
+  }
 
   function escapeHtml(s){
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -921,6 +942,23 @@
 
   // warm up the tokenizer in the background (safe now — it runs off the main thread)
   initKuromojiWorker().catch(()=>{});
+
+  // Restore the last scan so navigating to Notebook/Review and back doesn't lose it
+  (function restoreLastScan(){
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('lastScan') || 'null');
+      if (!saved) return;
+      textArea.value = saved.text || '';
+      if (saved.imagePreview) {
+        preview.src = saved.imagePreview;
+        preview.style.display = 'block';
+        clearImageBtn.style.display = '';
+      }
+      if (saved.words && saved.words.length) {
+        renderResults(saved.words, saved.text, saved.sentenceEn, true); // skipSave: avoid re-writing what we just read
+      }
+    } catch (e) { /* nothing to restore, or storage unavailable */ }
+  })();
 })();
 </script>
 </body>
