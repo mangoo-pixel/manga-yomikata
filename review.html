@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -83,6 +84,7 @@
 
   .card-back{display:none;}
   .card-back.show{display:block;}
+  .card-word-small{font-family:'Noto Sans JP',sans-serif;font-weight:700;font-size:26px;color:var(--ink-soft);margin-bottom:10px;}
   .card-reading{font-family:'Noto Sans JP',sans-serif;font-size:18px;color:var(--ink-soft);margin-bottom:4px;}
   .card-romaji{font-size:15px;font-weight:700;color:var(--red);margin-bottom:14px;}
   .card-meaning{font-size:20px;font-weight:600;}
@@ -151,6 +153,10 @@
       <div class="big">🎉</div>
       <h2 style="font-family:'Bungee',sans-serif;font-weight:400;font-size:22px;">All caught up!</h2>
       <p class="hint">You reviewed everything due for now. Nice work.</p>
+      <div style="display:flex;gap:10px;justify-content:center;margin-top:18px;flex-wrap:wrap;">
+        <button class="pill-btn filled" id="repeatBtn">🔁 Repeat this review</button>
+        <a class="pill-btn outline" href="notebook.html">📒 Manage my notebook</a>
+      </div>
     </div>
 
     <div id="cardArea" style="display:none;">
@@ -165,6 +171,7 @@
           <div class="card-hint">Tap the card to reveal the answer</div>
         </div>
         <div class="card-back" id="cardBackEl">
+          <div class="card-word-small jp" id="backWord"></div>
           <div class="card-reading jp" id="backReading"></div>
           <div class="card-romaji" id="backRomaji"></div>
           <div class="card-meaning" id="backMeaning"></div>
@@ -211,6 +218,7 @@
   const cardBackEl = document.getElementById('cardBackEl');
   const gradeRow = document.getElementById('gradeRow');
   const frontWord = document.getElementById('frontWord');
+  const backWord = document.getElementById('backWord');
   const backReading = document.getElementById('backReading');
   const backRomaji = document.getElementById('backRomaji');
   const backMeaning = document.getElementById('backMeaning');
@@ -218,9 +226,11 @@
   const cardIndexEl = document.getElementById('cardIndex');
   const cardTotalEl = document.getElementById('cardTotal');
   const shuffleBtn = document.getElementById('shuffleBtn');
+  const repeatBtn = document.getElementById('repeatBtn');
 
   let currentUser = null;
   let deck = [];
+  let originalDeck = [];
   let pos = 0;
   let revealed = false;
 
@@ -276,6 +286,7 @@
         .limit(30);
       if (error) throw error;
       deck = data || [];
+      originalDeck = deck.slice();
       pos = 0;
       loadingState.style.display = 'none';
       if (!deck.length) {
@@ -289,6 +300,14 @@
       loadingState.textContent = 'Could not load your review deck — try refreshing.';
     }
   }
+
+  repeatBtn.addEventListener('click', () => {
+    deck = originalDeck.slice();
+    pos = 0;
+    doneState.style.display = 'none';
+    cardArea.style.display = 'block';
+    showCard();
+  });
 
   shuffleBtn.addEventListener('click', () => {
     for (let i = deck.length - 1; i > 0; i--) {
@@ -311,6 +330,7 @@
     cardBackEl.classList.remove('show');
     gradeRow.style.display = 'none';
     frontWord.textContent = card.surface;
+    backWord.textContent = card.surface;
     backReading.textContent = card.reading || '';
     backRomaji.textContent = card.romaji || '';
     backMeaning.textContent = card.meaning || '(no meaning saved)';
