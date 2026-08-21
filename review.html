@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -102,12 +101,22 @@
     cursor:pointer;
     background:#fff;
   }
-  .grade-btn.again{color:var(--red);}
-  .grade-btn.again:hover{background:var(--red);color:#fff;}
-  .grade-btn.good{color:var(--ink);}
-  .grade-btn.good:hover{background:var(--ink);color:#fff;}
-  .grade-btn.easy{color:var(--green);}
-  .grade-btn.easy:hover{background:var(--green);color:#fff;border-color:var(--green);}
+  .grade-btn.learning{color:var(--red);}
+  .grade-btn.learning:hover{background:var(--red);color:#fff;}
+  .grade-btn.gotit{color:var(--green);border-color:var(--green);}
+  .grade-btn.gotit:hover{background:var(--green);color:#fff;}
+
+  .review-toast{
+    text-align:center;
+    font-size:13px;
+    font-weight:600;
+    color:var(--ink-soft);
+    margin-top:12px;
+    min-height:18px;
+    opacity:0;
+    transition:opacity .2s;
+  }
+  .review-toast.show{opacity:1;}
 
   .empty-state{text-align:center;padding:30px 10px;}
   .empty-state .big{font-size:44px;margin-bottom:10px;}
@@ -180,10 +189,10 @@
       </div>
 
       <div class="grade-row" id="gradeRow" style="display:none;">
-        <button class="grade-btn again" data-grade="again">😵 Again</button>
-        <button class="grade-btn good" data-grade="good">🙂 Good</button>
-        <button class="grade-btn easy" data-grade="easy">😎 Easy</button>
+        <button class="grade-btn learning" data-grade="learning">🔁 Still learning</button>
+        <button class="grade-btn gotit" data-grade="gotit">✅ Got it</button>
       </div>
+      <div class="review-toast" id="reviewToast"></div>
     </div>
   </section>
 
@@ -226,6 +235,7 @@
   const cardIndexEl = document.getElementById('cardIndex');
   const cardTotalEl = document.getElementById('cardTotal');
   const shuffleBtn = document.getElementById('shuffleBtn');
+  const reviewToast = document.getElementById('reviewToast');
   const repeatBtn = document.getElementById('repeatBtn');
 
   let currentUser = null;
@@ -233,6 +243,11 @@
   let originalDeck = [];
   let pos = 0;
   let revealed = false;
+
+  function katakanaToHiragana(str){
+    if (!str) return str;
+    return str.replace(/[\u30A1-\u30F6]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0x60));
+  }
 
   function escapeHtml(s){
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -318,6 +333,14 @@
     showCard();
   });
 
+  let toastTimer = null;
+  function showToast(msg){
+    reviewToast.textContent = msg;
+    reviewToast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => reviewToast.classList.remove('show'), 1400);
+  }
+
   function showCard(){
     if (pos >= deck.length) {
       cardArea.style.display = 'none';
@@ -331,7 +354,7 @@
     gradeRow.style.display = 'none';
     frontWord.textContent = card.surface;
     backWord.textContent = card.surface;
-    backReading.textContent = card.reading || '';
+    backReading.textContent = katakanaToHiragana(card.reading || '');
     backRomaji.textContent = card.romaji || '';
     backMeaning.textContent = card.meaning || '(no meaning saved)';
     backSource.textContent = card.source_note ? 'from: ' + card.source_note : '';
@@ -347,17 +370,15 @@
     gradeRow.style.display = 'flex';
   });
 
-  // Simplified spaced repetition: grade adjusts the next interval.
-  // again -> reset to 1 day; good -> roughly double the interval; easy -> triple it.
+  // 2-tier spaced repetition: "Still learning" resets to 1 day; "Got it" roughly doubles the interval.
   document.querySelectorAll('.grade-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const grade = btn.getAttribute('data-grade');
       const card = deck[pos];
       let interval = card.interval_days || 1;
-      if (grade === 'again') interval = 1;
-      else if (grade === 'good') interval = Math.max(1, Math.round(interval * 2));
-      else interval = Math.max(1, Math.round(interval * 3));
+      if (grade === 'learning') interval = 1;
+      else interval = Math.max(2, Math.round(interval * 2));
 
       const nextReview = new Date(Date.now() + interval * 24 * 60 * 60 * 1000).toISOString();
 
@@ -370,6 +391,8 @@
       } catch (err) {
         console.error('Could not save review progress:', err);
       }
+
+      showToast('📅 Next review: in ' + interval + (interval === 1 ? ' day' : ' days'));
 
       pos++;
       showCard();
