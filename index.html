@@ -654,21 +654,7 @@
       const imageBase64 = await fileToBase64(resized);
       preview.src = 'data:image/jpeg;base64,' + imageBase64; // persists across page reloads
       ocrStatusText.textContent = 'Reading text from image…';
-      const res = await fetch('/.netlify/functions/ocr', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64, mimeType: 'image/jpeg' })
-      });
-
-      let data;
-      try {
-        data = await res.json();
-      } catch {
-        throw new Error(res.status === 504
-          ? 'the scan took too long — try a smaller or tighter-cropped image'
-          : 'server error (status ' + res.status + ')');
-      }
-      if (!res.ok) throw new Error(data.error || 'request failed');
+      const data = await fetchWithRetry('/.netlify/functions/ocr', { imageBase64, mimeType: 'image/jpeg' });
       const cleaned = (data.text || '').trim();
       textArea.value = cleaned || textArea.value;
       if (!cleaned) showError("Couldn't find text in that image — try a clearer photo, or type the word manually.");
@@ -792,23 +778,44 @@
     return out;
   }
 
+  // Retries a POST call once or twice on transient failures (overload, gateway timeout).
+  // Retrying here (not in the Netlify function) avoids the function's own ~10s time budget.
+  async function fetchWithRetry(url, body, maxAttempts){
+    maxAttempts = maxAttempts || 2;
+    let lastErr;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        let data;
+        try { data = await res.json(); }
+        catch {
+          const hint = res.status === 404 ? ' — function may not be deployed'
+                     : res.status === 504 ? ' — took too long'
+                     : '';
+          throw new Error('server error, status ' + res.status + hint);
+        }
+        if (!res.ok) {
+          const retryable = res.status === 502 || res.status === 503 || res.status === 504;
+          if (retryable && attempt < maxAttempts) { lastErr = new Error(data.error || 'request failed'); continue; }
+          throw new Error(data.error || 'request failed');
+        }
+        return data;
+      } catch (err) {
+        lastErr = err;
+        if (attempt < maxAttempts) { await new Promise(r => setTimeout(r, 900)); continue; }
+        throw lastErr;
+      }
+    }
+    throw lastErr;
+  }
+
   // ---------- translation (Gemini, context-aware — one call per analyze) ----------
   async function translateBatch(sentence, words){
-    const res = await fetch('/.netlify/functions/translate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sentence, words })
-    });
-    let data;
-    try { data = await res.json(); }
-    catch {
-      const hint = res.status === 404 ? ' — the translate function may not be deployed'
-                 : res.status === 504 ? ' — the request took too long'
-                 : '';
-      throw new Error('server error, status ' + res.status + hint);
-    }
-    if (!res.ok) throw new Error(data.error || 'translation request failed');
-    return data; // { sentenceTranslation, meanings: { word: meaning } }
+    return fetchWithRetry('/.netlify/functions/translate', { sentence, words });
   }
 
   const POS_LABEL = {
