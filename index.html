@@ -538,7 +538,10 @@
         reading: word.reading,
         romaji: word.romaji,
         meaning: word.en || '',
-        source_note: sourceNote || null
+        source_note: sourceNote || null,
+        next_review: new Date().toISOString(), // due immediately — don't rely on a DB default
+        interval_days: 1,
+        times_reviewed: 0
       }]);
       if (error) throw error;
       btnEl.textContent = '✓ Saved';
@@ -907,7 +910,7 @@
       card.innerHTML =
         '<div class="word-main">' +
           '<div class="word-kanji jp">' + escapeHtml(w.surface) + '</div>' +
-          '<div class="word-kana jp">' + escapeHtml(w.reading) + '</div>' +
+          '<div class="word-kana jp">' + escapeHtml(katakanaToHiragana(w.reading)) + '</div>' +
           '<div class="word-romaji">' + escapeHtml(w.romaji) + '</div>' +
         '</div>' +
         '<div class="word-mid">' +
@@ -941,6 +944,13 @@
     const lines = fullText.split(/\n+/).map(l => l.trim()).filter(Boolean);
     const match = lines.find(l => l.includes(surface));
     return (match || fullText).slice(0, 80);
+  }
+
+  // Convert katakana reading to hiragana for display — dictionaries show plain-word
+  // readings in hiragana; katakana is normally reserved for loanwords/emphasis.
+  function katakanaToHiragana(str){
+    if (!str) return str;
+    return str.replace(/[\u30A1-\u30F6]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0x60));
   }
 
   function escapeHtml(s){
