@@ -28,6 +28,10 @@ exports.handler = async (event) => {
       'For each word, give the SHORT (2-6 word) English meaning that is actually correct ' +
       'for how it is used in THIS sentence — not just the most common dictionary sense if ' +
       'context implies something else. Also give one natural, fluent English translation of the whole sentence.\n\n' +
+      'IMPORTANT: every single word in the list MUST appear in your output — do not skip any, ' +
+      'even short particles, counters, or fragments with no independent meaning. For those, ' +
+      'describe their grammatical function instead (e.g. "counter for cups", "possessive particle", ' +
+      '"question marker"). Never omit a word or leave "meaning" empty.\n\n' +
       'Respond with ONLY valid JSON, no other text, in exactly this shape:\n' +
       '{"sentence_translation": "...", "words": [{"word": "...", "meaning": "..."}]}';
 
