@@ -190,6 +190,11 @@
   let selectMode = false;
   let selectedIds = new Set();
 
+  function katakanaToHiragana(str){
+    if (!str) return str;
+    return str.replace(/[\u30A1-\u30F6]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0x60));
+  }
+
   function escapeHtml(s){
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
@@ -333,7 +338,7 @@
           (selectedIds.has(r.id) ? 'checked' : '') + '>' +
         '<div class="word-main">' +
           '<div class="word-kanji jp">' + escapeHtml(r.surface) + '</div>' +
-          '<div class="word-kana jp">' + escapeHtml(r.reading || '') + '</div>' +
+          '<div class="word-kana jp">' + escapeHtml(katakanaToHiragana(r.reading || '')) + '</div>' +
           '<div class="word-romaji">' + escapeHtml(r.romaji || '') + '</div>' +
         '</div>' +
         '<div class="word-mid">' +
