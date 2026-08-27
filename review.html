@@ -155,13 +155,13 @@
 
     <div id="emptyState" class="empty-state" style="display:none;">
       <div class="big">📭</div>
-      <p>Nothing due for review right now. Go save a few more words from the scanner, or come back later — new words become due for review over time.</p>
+      <p>Your notebook is empty. Go save a few words from the scanner, and they'll show up here to practice.</p>
     </div>
 
     <div id="doneState" class="done-state" style="display:none;">
       <div class="big">🎉</div>
-      <h2 style="font-family:'Bungee',sans-serif;font-weight:400;font-size:22px;">All caught up!</h2>
-      <p class="hint">You reviewed everything due for now. Nice work.</p>
+      <h2 style="font-family:'Bungee',sans-serif;font-weight:400;font-size:22px;">Nice work!</h2>
+      <p class="hint">You went through your whole notebook. Repeat as many times as you like — words only leave here when you remove them from your notebook.</p>
       <div style="display:flex;gap:10px;justify-content:center;margin-top:18px;flex-wrap:wrap;">
         <button class="pill-btn filled" id="repeatBtn">🔁 Repeat this review</button>
         <a class="pill-btn outline" href="notebook.html">📒 Manage my notebook</a>
@@ -296,9 +296,8 @@
         .from('vocab')
         .select('*')
         .eq('user_id', currentUser.id)
-        .lte('next_review', new Date().toISOString())
-        .order('next_review', { ascending: true })
-        .limit(30);
+        .order('times_reviewed', { ascending: true }) // words you've practiced least come up first
+        .limit(200);
       if (error) throw error;
       deck = data || [];
       originalDeck = deck.slice();
@@ -370,29 +369,24 @@
     gradeRow.style.display = 'flex';
   });
 
-  // 2-tier spaced repetition: "Still learning" resets to 1 day; "Got it" roughly doubles the interval.
+  // Words never leave the deck based on grading anymore — only removing them from
+  // the notebook does that. Grading here just tracks how much you've practiced.
   document.querySelectorAll('.grade-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const grade = btn.getAttribute('data-grade');
       const card = deck[pos];
-      let interval = card.interval_days || 1;
-      if (grade === 'learning') interval = 1;
-      else interval = Math.max(2, Math.round(interval * 2));
-
-      const nextReview = new Date(Date.now() + interval * 24 * 60 * 60 * 1000).toISOString();
 
       try {
         await sb.from('vocab').update({
-          interval_days: interval,
-          next_review: nextReview,
           times_reviewed: (card.times_reviewed || 0) + 1
         }).eq('id', card.id);
+        card.times_reviewed = (card.times_reviewed || 0) + 1;
       } catch (err) {
         console.error('Could not save review progress:', err);
       }
 
-      showToast('📅 Next review: in ' + interval + (interval === 1 ? ' day' : ' days'));
+      showToast(grade === 'learning' ? '🔁 Keep at it' : '✅ Nice');
 
       pos++;
       showCard();
