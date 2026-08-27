@@ -865,26 +865,40 @@
       const dictForms = tokens.map(t => (t.basic_form && t.basic_form !== '*') ? t.basic_form : t.surface_form);
 
       analyzeStatusText.textContent = 'Looking up meanings…';
-      let meanings = {}, sentenceEn = '';
+      let meanings = {}, readings = {}, sentenceEn = '', translationFailed = false, failReason = '';
       try {
         const result = await translateBatch(text, dictForms);
         meanings = result.meanings || {};
+        readings = result.readings || {};
         sentenceEn = result.sentenceTranslation || '';
       } catch (e) {
         console.error(e);
-        showError('Meanings could not be loaded (' + (e.message || 'unknown error') + '). Readings and romaji below are still accurate.');
+        translationFailed = true;
+        failReason = e.message || 'unknown error';
       }
 
+      const isValidKana = s => /^[\u3040-\u30FF\u30FCー゜゛\s]*$/.test(s || '');
+
       const wordResults = tokens.map((t, i) => {
-        const reading = t.reading || t.surface_form;
+        let reading = t.reading || t.surface_form;
+        // Numbers/symbols often aren't given a real reading by the tokenizer (e.g. times,
+        // counters) — fall back to Gemini's contextual reading when kuromoji couldn't provide kana.
+        if (!isValidKana(reading) && readings[dictForms[i]]) {
+          reading = readings[dictForms[i]];
+        }
         return {
           surface: t.surface_form,
           reading,
           romaji: katakanaToRomaji(reading),
           en: meanings[dictForms[i]] || '',
-          pos: POS_LABEL[t.pos] || ''
+          pos: POS_LABEL[t.pos] || '',
+          translationFailed
         };
       });
+
+      if (translationFailed) {
+        showError('⚠️ Translation request failed (' + failReason + ') — this is usually Gemini being briefly overloaded, or the shared free quota being busy. Tap "Show me how to read this" again in a moment to retry. Readings and romaji below are still accurate.', true);
+      }
 
       renderResults(wordResults, text, sentenceEn);
     } catch (err) {
@@ -923,7 +937,11 @@
           '<div class="word-romaji">' + escapeHtml(w.romaji) + '</div>' +
         '</div>' +
         '<div class="word-mid">' +
-          '<div class="word-en">' + (w.en ? escapeHtml(w.en) : '<span style="color:#a39d8f;">meaning unavailable</span>') + '</div>' +
+          '<div class="word-en">' + (w.en ? escapeHtml(w.en) :
+            w.translationFailed
+              ? '<span style="color:#C6362C;">⚠️ translation failed — retry above</span>'
+              : '<span style="color:#a39d8f;">meaning unavailable</span>'
+          ) + '</div>' +
           (w.pos ? '<span class="word-pos">' + escapeHtml(w.pos) + '</span>' : '') +
         '</div>' +
         '<div class="word-actions">' +
