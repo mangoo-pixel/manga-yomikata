@@ -755,8 +755,17 @@
   };
   const VOWEL_EXTEND = { a:'a', i:'i', u:'u', e:'i', o:'u' }; // rough long-vowel handling for ー
 
-  function katakanaToRomaji(kana){
-    if (!kana) return '';
+  // Kuromoji sometimes falls back to the raw (hiragana) surface form as the "reading"
+  // for words it doesn't recognize — e.g. stylized manga sound effects. Normalize any
+  // hiragana to katakana first so the converter below always has katakana to work with.
+  function hiraganaToKatakana(str){
+    if (!str) return str;
+    return str.replace(/[\u3041-\u3096]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 0x60));
+  }
+
+  function katakanaToRomaji(kanaInput){
+    if (!kanaInput) return '';
+    const kana = hiraganaToKatakana(kanaInput);
     let out = '';
     let i = 0;
     while (i < kana.length) {
