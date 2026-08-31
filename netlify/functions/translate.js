@@ -82,35 +82,13 @@ exports.handler = async (event) => {
     }
 
     const allIndices = uniqueWords.map((_, i) => i);
-    let result = await callGemini(allIndices);
+    const result = await callGemini(allIndices);
 
-    // Safety net: if any word still has no meaning (model skipped it, or the whole
-    // response came back technically valid but empty), retry those by ID.
-    // Bug fixed here: this used to require "some but not all" words missing, which
-    // meant a 100%-empty response — the worst case — was the one case that never
-    // got retried, and silently rendered as blank for every word with no error shown.
-    let gapIndices = allIndices.filter(i => {
-      const w = uniqueWords[i];
-      return !result.meanings[w] || !result.meanings[w].trim();
-    });
-    if (gapIndices.length && gapIndices.length <= 30) {
-      try {
-        const fillIn = await callGemini(gapIndices);
-        Object.assign(result.meanings, fillIn.meanings);
-        Object.assign(result.readings, fillIn.readings);
-      } catch (e) {
-        // Retry request itself failed — fall through to the total-failure check below.
-      }
-    }
-
-    // If it's STILL entirely empty after a retry, this is a genuine failure, not a
-    // handful of shrugged-off words — say so explicitly rather than returning a
-    // silent 200 with nothing in it, so the app can show a clear error and let the
-    // user retry, instead of every word quietly showing "meaning unavailable".
-    if (Object.keys(result.meanings).length === 0 && uniqueWords.length > 0) {
-      throw new Error('Gemini returned an empty translation after retrying — likely a transient issue, please try again');
-    }
-
+    // Single Gemini call only — this function must stay fast. Retrying here (like the
+    // previous version did) can chain two Gemini calls inside one ~10s function window,
+    // which is exactly what caused the 504 timeouts this was meant to prevent. If any
+    // words are missing a meaning, the caller (the browser) retries just those specific
+    // words as its own separate, fast request — see fillMissingTranslations in index.html.
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
