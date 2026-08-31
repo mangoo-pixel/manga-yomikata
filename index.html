@@ -839,6 +839,9 @@
   function isSkippable(token){
     if (token.pos === '記号') return true; // punctuation/symbols
     if (!token.surface_form.trim()) return true;
+    // Decorative characters (ellipses, hearts, stars, etc.) sometimes get misclassified
+    // as nouns instead of symbols — skip anything with no actual Japanese script or digit.
+    if (!/[\u3040-\u30FF\u4E00-\u9FFF0-9０-９]/.test(token.surface_form)) return true;
     return false;
   }
 
@@ -871,6 +874,23 @@
         meanings = result.meanings || {};
         readings = result.readings || {};
         sentenceEn = result.sentenceTranslation || '';
+
+        // If some (or all) words came back with no meaning, retry just those specific
+        // words as a second, separate, fast request — each request stays a single
+        // Gemini call, so this can't compound into a timeout the way an internal
+        // server-side retry would.
+        const uniqueDictForms = Array.from(new Set(dictForms));
+        const gaps = uniqueDictForms.filter(w => !meanings[w] || !meanings[w].trim());
+        if (gaps.length) {
+          try {
+            const fillIn = await translateBatch(text, gaps);
+            Object.assign(meanings, fillIn.meanings || {});
+            Object.assign(readings, fillIn.readings || {});
+          } catch (e) {
+            console.error('Gap-fill retry failed:', e);
+            // Leave those specific words as genuinely unavailable rather than failing the whole scan.
+          }
+        }
       } catch (e) {
         console.error(e);
         translationFailed = true;
@@ -878,12 +898,15 @@
       }
 
       const isValidKana = s => /^[\u3040-\u30FF\u30FCー゜゛\s]*$/.test(s || '');
+      const isNumeric = s => /[0-9０-９]/.test(s || '');
 
       const wordResults = tokens.map((t, i) => {
         let reading = t.reading || t.surface_form;
-        // Numbers/symbols often aren't given a real reading by the tokenizer (e.g. times,
-        // counters) — fall back to Gemini's contextual reading when kuromoji couldn't provide kana.
-        if (!isValidKana(reading) && readings[dictForms[i]]) {
+        // Numbers/counters change pronunciation based on context (e.g. 一 -> "ichi" alone,
+        // but "ip-" before certain counters) — kuromoji's reading for these is unreliable
+        // even when it looks like valid kana, so always prefer Gemini's contextual reading here.
+        const needsGeminiReading = !isValidKana(reading) || isNumeric(t.surface_form);
+        if (needsGeminiReading && readings[dictForms[i]]) {
           reading = readings[dictForms[i]];
         }
         return {
