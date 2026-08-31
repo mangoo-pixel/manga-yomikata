@@ -29,25 +29,30 @@ exports.handler = async (event) => {
 
     function buildPrompt(indices){
       const numbered = indices.map(i => i + '. ' + uniqueWords[i]).join('\n');
-      return 'You are a Japanese-English dictionary helping a beginner read manga.\n\n' +
-        'Full sentence (for context): ' + sentence + '\n\n' +
+      return 'You are a Japanese-English dictionary and translator helping a beginner read manga.\n\n' +
+        'SOURCE TEXT (for context — this may be a single line, or a whole page with several ' +
+        'separate speech bubbles, captions, and sound effects concatenated together):\n' + sentence + '\n\n' +
         'Numbered words to define (dictionary/base forms):\n' + numbered + '\n\n' +
         'For each numbered word, give:\n' +
-        '1. "reading": how it is actually PRONOUNCED in THIS sentence, written in hiragana. ' +
+        '1. "reading": how it is actually PRONOUNCED in THIS context, written in hiragana. ' +
         'This matters most for numbers and times — always spell out a full pronunciation, never ' +
         'leave it blank. Irregular time readings like 4時=よじ, 7時=しちじ, 9時=くじ must be correct. ' +
         'A bare number with no attached counter (e.g. "260") should be read as a plain cardinal ' +
         'number (e.g. "にひゃくろくじゅう") — never leave a number\'s reading empty.\n' +
         '2. "meaning": the SHORT (2-6 word) English meaning that is actually correct for how it is ' +
-        'used in THIS sentence — not just the most common dictionary sense if context implies something else. ' +
+        'used in THIS context — not just the most common dictionary sense if context implies something else. ' +
         'Even short particles, counters, numbers, or bound fragments with no independent meaning MUST get a ' +
         'real entry — describe their grammatical function instead (e.g. "counter for cups", "possessive particle"). ' +
         'A bare number\'s meaning can simply be the number itself written out (e.g. "260").\n' +
         'NEVER leave "reading" or "meaning" empty, and NEVER skip a numbered word — every number listed ' +
         'above must appear exactly once in your output, matched by its "id".\n\n' +
-        'Also give one natural, fluent English translation of the whole sentence.\n\n' +
+        'Also provide "full_translation": a COMPLETE English translation of the ENTIRE source text above, ' +
+        'start to finish — do not summarize, shorten, paraphrase-and-stop-early, or omit any part. If it ' +
+        'contains multiple separate speech bubbles, captions, or fragments, translate ALL of them, in the ' +
+        'same order, separated by " / ". Length is not a concern — a long source text needs a full-length ' +
+        'translation covering every part of it, not just the beginning.\n\n' +
         'Respond with ONLY valid JSON, no other text, no markdown code fences, in exactly this shape:\n' +
-        '{"sentence_translation": "...", "words": [{"id": 0, "reading": "...", "meaning": "..."}]}';
+        '{"full_translation": "...", "words": [{"id": 0, "reading": "...", "meaning": "..."}]}';
     }
 
     async function callGemini(indices){
@@ -78,7 +83,7 @@ exports.handler = async (event) => {
         meanings[word] = entry.meaning || '';
         if (entry.reading) readings[word] = entry.reading;
       });
-      return { sentenceTranslation: parsed.sentence_translation || '', meanings, readings };
+      return { sentenceTranslation: parsed.full_translation || '', meanings, readings };
     }
 
     const allIndices = uniqueWords.map((_, i) => i);
