@@ -529,10 +529,33 @@
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
+
+    // Already saved — this click means "unsave" instead.
+    if (btnEl.dataset.vocabId) {
+      const vocabId = btnEl.dataset.vocabId;
+      btnEl.disabled = true;
+      btnEl.textContent = 'Removing…';
+      try {
+        const { error } = await sb.from('vocab').delete().eq('id', vocabId);
+        if (error) throw error;
+        delete btnEl.dataset.vocabId;
+        btnEl.textContent = 'Save';
+        btnEl.classList.remove('saved');
+        btnEl.disabled = false;
+        refreshVocabCount();
+      } catch (err) {
+        console.error(err);
+        btnEl.textContent = '✓ Saved';
+        btnEl.disabled = false;
+        showError('Could not remove that word — try again.');
+      }
+      return;
+    }
+
     btnEl.disabled = true;
     btnEl.textContent = 'Saving…';
     try {
-      const { error } = await sb.from('vocab').insert([{
+      const { data, error } = await sb.from('vocab').insert([{
         user_id: currentUser.id,
         surface: word.surface,
         reading: word.reading,
@@ -542,10 +565,12 @@
         next_review: new Date().toISOString(), // due immediately — don't rely on a DB default
         interval_days: 1,
         times_reviewed: 0
-      }]);
+      }]).select();
       if (error) throw error;
-      btnEl.textContent = '✓ Saved';
+      btnEl.dataset.vocabId = data && data[0] && data[0].id;
+      btnEl.textContent = '✓ Saved (tap to remove)';
       btnEl.classList.add('saved');
+      btnEl.disabled = false;
       refreshVocabCount();
     } catch (err) {
       console.error(err);
@@ -751,7 +776,8 @@
     'ダ':'da','ヂ':'ji','ヅ':'zu','デ':'de','ド':'do',
     'バ':'ba','ビ':'bi','ブ':'bu','ベ':'be','ボ':'bo',
     'パ':'pa','ピ':'pi','プ':'pu','ペ':'pe','ポ':'po',
-    'ヴ':'vu','ァ':'a','ィ':'i','ゥ':'u','ェ':'e','ォ':'o','ッ':''
+    'ヴ':'vu','ァ':'a','ィ':'i','ゥ':'u','ェ':'e','ォ':'o','ッ':'',
+    'ャ':'ya','ュ':'yu','ョ':'yo' // fallback for isolated small youon that don't combine with a preceding consonant
   };
   const VOWEL_EXTEND = { a:'a', i:'i', u:'u', e:'i', o:'u' }; // rough long-vowel handling for ー
 
