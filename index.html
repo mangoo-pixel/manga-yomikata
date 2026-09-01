@@ -891,30 +891,33 @@
         return;
       }
 
+      // Send every token in order (no dedup) — position matters, since Gemini uses
+      // adjacency to detect compounds the tokenizer split incorrectly, e.g. 純米酒
+      // being split into 純/米/酒, each misread alone instead of together as "junmaishu".
       const dictForms = tokens.map(t => (t.basic_form && t.basic_form !== '*') ? t.basic_form : t.surface_form);
 
       analyzeStatusText.textContent = 'Looking up meanings…';
-      let meanings = {}, readings = {}, sentenceEn = '', translationFailed = false, failReason = '';
+      let groups = [], sentenceEn = '', translationFailed = false, failReason = '';
       try {
         const result = await translateBatch(text, dictForms);
-        meanings = result.meanings || {};
-        readings = result.readings || {};
+        groups = result.groups || [];
         sentenceEn = result.sentenceTranslation || '';
 
-        // If some (or all) words came back with no meaning, retry just those specific
-        // words as a second, separate, fast request — each request stays a single
-        // Gemini call, so this can't compound into a timeout the way an internal
-        // server-side retry would.
-        const uniqueDictForms = Array.from(new Set(dictForms));
-        const gaps = uniqueDictForms.filter(w => !meanings[w] || !meanings[w].trim());
-        if (gaps.length) {
+        // If any group came back with no meaning, retry just that group's own words
+        // as a second, separate, fast request — each request stays a single Gemini
+        // call, so this can't compound into a timeout the way a server-side retry would.
+        const gapGroups = groups.filter(g => !g.meaning || !g.meaning.trim());
+        if (gapGroups.length) {
           try {
-            const fillIn = await translateBatch(text, gaps);
-            Object.assign(meanings, fillIn.meanings || {});
-            Object.assign(readings, fillIn.readings || {});
+            for (const g of gapGroups) {
+              const subWords = g.ids.map(id => dictForms[id]);
+              const fillIn = await translateBatch(text, subWords);
+              const filled = (fillIn.groups || [])[0];
+              if (filled) { g.reading = filled.reading || g.reading; g.meaning = filled.meaning || g.meaning; }
+            }
           } catch (e) {
             console.error('Gap-fill retry failed:', e);
-            // Leave those specific words as genuinely unavailable rather than failing the whole scan.
+            // Leave those specific groups as genuinely unavailable rather than failing the whole scan.
           }
         }
       } catch (e) {
@@ -926,24 +929,37 @@
       const isValidKana = s => /^[\u3040-\u30FF\u30FCー゜゛\s]*$/.test(s || '');
       const isNumeric = s => /[0-9０-９]/.test(s || '');
 
-      const wordResults = tokens.map((t, i) => {
-        let reading = t.reading || t.surface_form;
-        // Numbers/counters change pronunciation based on context (e.g. 一 -> "ichi" alone,
-        // but "ip-" before certain counters) — kuromoji's reading for these is unreliable
-        // even when it looks like valid kana, so always prefer Gemini's contextual reading here.
-        const needsGeminiReading = !isValidKana(reading) || isNumeric(t.surface_form);
-        if (needsGeminiReading && readings[dictForms[i]]) {
-          reading = readings[dictForms[i]];
+      // No groups came back (e.g. translation failed outright) — fall back to
+      // one group per token so the reading/romaji breakdown still works.
+      if (!groups.length) {
+        groups = tokens.map((_, i) => ({ ids: [i], reading: '', meaning: '' }));
+      }
+
+      const wordResults = groups.map(g => {
+        const groupTokens = g.ids.map(id => tokens[id]).filter(Boolean);
+        if (!groupTokens.length) return null;
+        const surface = groupTokens.map(t => t.surface_form).join('');
+        let reading = g.reading;
+        if (!reading) {
+          // No Gemini reading available (failure case) — fall back to the tokenizer's
+          // own per-piece readings joined together (may be imperfect for compounds,
+          // but better than nothing when translation has failed).
+          reading = groupTokens.map(t => t.reading || t.surface_form).join('');
+        }
+        // Numbers/counters change pronunciation based on context — kuromoji's own
+        // reading for these is unreliable even when it looks like valid kana.
+        if (g.reading && (!isValidKana(reading) || isNumeric(surface))) {
+          reading = g.reading;
         }
         return {
-          surface: t.surface_form,
+          surface,
           reading,
           romaji: katakanaToRomaji(reading),
-          en: meanings[dictForms[i]] || '',
-          pos: POS_LABEL[t.pos] || '',
+          en: g.meaning || '',
+          pos: groupTokens.length === 1 ? (POS_LABEL[groupTokens[0].pos] || '') : 'compound',
           translationFailed
         };
-      });
+      }).filter(Boolean);
 
       if (translationFailed) {
         showError('⚠️ Translation request failed (' + failReason + ') — this is usually Gemini being briefly overloaded, or the shared free quota being busy. Tap "Show me how to read this" again in a moment to retry. Readings and romaji below are still accurate.', true);
