@@ -1,12 +1,18 @@
 // netlify/functions/translate.js
-// Gives contextually accurate English meanings for a list of Japanese words,
-// using the full sentence for context (fixes wrong meanings from naive
-// word-by-word translation, e.g. パン -> "bread" not "camera panning").
+// Gives contextually accurate English meanings for Japanese text, and — importantly —
+// detects when the client's word-by-word tokenizer has WRONGLY split a real compound
+// word into individual kanji (e.g. 純米酒 split into 純/米/酒, each read in isolation as
+// "jun"/"bei"/"shu" instead of the correct combined reading "junmaishu"). Gemini sees
+// the words in their original sentence order and can merge these back into one entry
+// with the correct whole-word reading and meaning.
 //
-// Matching strategy: each word is sent with a numeric ID, and Gemini must echo
-// that ID back with its answer. This is immune to the model rephrasing a word
-// slightly, dropping an entry (which used to shift every later entry's position),
-// or reordering — all of which previously caused silent, hard-to-diagnose gaps.
+// Matching strategy: every incoming word gets a sequential position ID matching its
+// exact position in the browser's token list (duplicates are NOT deduplicated — that
+// would break the positional adjacency needed to detect compounds, and also risks
+// giving two occurrences of the same word the same reading even if context differs).
+// Gemini returns "groups" of one or more consecutive IDs that belong together as a
+// single unit, each with one combined reading/meaning. Every incoming ID must appear
+// in exactly one group.
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
@@ -24,43 +30,50 @@ exports.handler = async (event) => {
       return { statusCode: 500, body: JSON.stringify({ error: 'Server is missing GEMINI_API_KEY' }) };
     }
 
-    const uniqueWords = Array.from(new Set(words)).slice(0, 60); // safety cap
+    const wordList = words.slice(0, 80); // safety cap — positions preserved, no dedup
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
 
-    function buildPrompt(indices){
-      const numbered = indices.map(i => i + '. ' + uniqueWords[i]).join('\n');
+    function buildPrompt(){
+      const numbered = wordList.map((w, i) => i + '. ' + w).join('\n');
       return 'You are a Japanese-English dictionary and translator helping a beginner read manga.\n\n' +
         'SOURCE TEXT (for context — this may be a single line, or a whole page with several ' +
         'separate speech bubbles, captions, and sound effects concatenated together):\n' + sentence + '\n\n' +
-        'Numbered words to define (dictionary/base forms):\n' + numbered + '\n\n' +
-        'For each numbered word, give:\n' +
-        '1. "reading": how it is actually PRONOUNCED in THIS context, written in hiragana. ' +
-        'This matters most for numbers and times — always spell out a full pronunciation, never ' +
-        'leave it blank. Irregular time readings like 4時=よじ, 7時=しちじ, 9時=くじ must be correct. ' +
-        'A bare number with no attached counter (e.g. "260") should be read as a plain cardinal ' +
-        'number (e.g. "にひゃくろくじゅう") — never leave a number\'s reading empty.\n' +
-        '2. "meaning": the SHORT (2-6 word) English meaning that is actually correct for how it is ' +
-        'used in THIS context — not just the most common dictionary sense if context implies something else. ' +
-        'Even short particles, counters, numbers, or bound fragments with no independent meaning MUST get a ' +
-        'real entry — describe their grammatical function instead (e.g. "counter for cups", "possessive particle"). ' +
-        'A bare number\'s meaning can simply be the number itself written out (e.g. "260").\n' +
-        'NEVER leave "reading" or "meaning" empty, and NEVER skip a numbered word — every number listed ' +
-        'above must appear exactly once in your output, matched by its "id".\n\n' +
+        'A tokenizer has split this text into the following pieces, IN ORDER, numbered by position:\n' +
+        numbered + '\n\n' +
+        'IMPORTANT — the tokenizer sometimes WRONGLY splits a real compound word into separate kanji ' +
+        'that are each correct alone but WRONG when read separately as part of the compound. For example ' +
+        '純, 米, 酒 individually read "jun", "bei", "shu" — but as the single compound word 純米酒 (pure rice ' +
+        'sake) they read together as "じゅんまいしゅ" (junmaishu), which is NOT the same as reading each ' +
+        'kanji on its own. When you see CONSECUTIVE numbered pieces like this that form one real compound ' +
+        'word, proper noun, or set phrase — where the combined reading is genuinely different from just ' +
+        'concatenating each piece\'s own reading — merge them into ONE group with the correct combined ' +
+        'reading and meaning for the whole thing.\n\n' +
+        'Do NOT over-merge: ordinary sentences (a noun followed by a particle, a verb followed by its ' +
+        'ending, etc.) should stay as separate, single-piece groups — merging is ONLY for genuine compounds ' +
+        'where reading the pieces separately would give a wrong or unnatural result.\n\n' +
+        'Return "groups": one entry per group. Each group has:\n' +
+        '- "ids": the array of consecutive position numbers it covers (a single unmerged piece is just [n]).\n' +
+        '- "reading": how the WHOLE group is pronounced together, in hiragana. Always spell out numbers ' +
+        'and times fully (e.g. 4時=よじ, a bare number like "260" = "にひゃくろくじゅう"). Never leave empty.\n' +
+        '- "meaning": a SHORT (2-6 word) English meaning correct for how it\'s used in this context. Even ' +
+        'particles, counters, or fragments with no independent meaning need a real entry describing their ' +
+        'grammatical function (e.g. "counter for cups", "possessive particle"). Never leave empty.\n\n' +
+        'EVERY position number from 0 to ' + (wordList.length - 1) + ' must appear in EXACTLY ONE group\'s ' +
+        '"ids" array — no number skipped, no number in two groups.\n\n' +
         'Also provide "full_translation": a COMPLETE English translation of the ENTIRE source text above, ' +
-        'start to finish — do not summarize, shorten, paraphrase-and-stop-early, or omit any part. If it ' +
-        'contains multiple separate speech bubbles, captions, or fragments, translate ALL of them, in the ' +
-        'same order, separated by " / ". Length is not a concern — a long source text needs a full-length ' +
-        'translation covering every part of it, not just the beginning.\n\n' +
+        'start to finish — do not summarize, shorten, or omit any part. If it contains multiple separate ' +
+        'speech bubbles or captions, translate ALL of them in order, separated by " / ".\n\n' +
         'Respond with ONLY valid JSON, no other text, no markdown code fences, in exactly this shape:\n' +
-        '{"full_translation": "...", "words": [{"id": 0, "reading": "...", "meaning": "..."}]}';
+        '{"full_translation": "...", "groups": [{"ids": [0], "reading": "...", "meaning": "..."}, ' +
+        '{"ids": [1,2,3], "reading": "...", "meaning": "..."}]}';
     }
 
-    async function callGemini(indices){
+    async function callGemini(){
       const resp = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: buildPrompt(indices) }] }],
+          contents: [{ parts: [{ text: buildPrompt() }] }],
           generationConfig: { responseMimeType: 'application/json' }
         })
       });
@@ -74,26 +87,37 @@ exports.handler = async (event) => {
       try { parsed = JSON.parse(rawText); }
       catch { throw new Error('Could not parse translation response: ' + rawText.slice(0, 150)); }
 
-      const meanings = {}, readings = {};
-      const respWords = Array.isArray(parsed.words) ? parsed.words : [];
-      respWords.forEach(entry => {
-        if (!entry || typeof entry.id !== 'number') return;
-        const word = uniqueWords[entry.id];
-        if (word === undefined) return; // out-of-range id — ignore rather than corrupt data
-        meanings[word] = entry.meaning || '';
-        if (entry.reading) readings[word] = entry.reading;
+      const rawGroups = Array.isArray(parsed.groups) ? parsed.groups : [];
+      const covered = new Set();
+      const groups = [];
+
+      rawGroups.forEach(g => {
+        if (!g || !Array.isArray(g.ids) || !g.ids.length) return;
+        // Only accept in-range, not-already-covered ids — protects against a
+        // malformed response corrupting the final word list.
+        const ids = g.ids.filter(id => typeof id === 'number' && id >= 0 && id < wordList.length && !covered.has(id));
+        if (!ids.length) return;
+        ids.forEach(id => covered.add(id));
+        groups.push({ ids, reading: g.reading || '', meaning: g.meaning || '' });
       });
-      return { sentenceTranslation: parsed.full_translation || '', meanings, readings };
+
+      // Fill in any position the model didn't cover (shouldn't normally happen, but
+      // guarantees every word still shows up rather than silently vanishing).
+      for (let i = 0; i < wordList.length; i++) {
+        if (!covered.has(i)) groups.push({ ids: [i], reading: '', meaning: '' });
+      }
+      groups.sort((a, b) => a.ids[0] - b.ids[0]);
+
+      return { sentenceTranslation: parsed.full_translation || '', groups };
     }
 
-    const allIndices = uniqueWords.map((_, i) => i);
-    const result = await callGemini(allIndices);
+    const result = await callGemini();
 
-    // Single Gemini call only — this function must stay fast. Retrying here (like the
-    // previous version did) can chain two Gemini calls inside one ~10s function window,
-    // which is exactly what caused the 504 timeouts this was meant to prevent. If any
-    // words are missing a meaning, the caller (the browser) retries just those specific
-    // words as its own separate, fast request — see fillMissingTranslations in index.html.
+    // Single Gemini call only — this function must stay fast. Retrying here (like an
+    // earlier version did) can chain two Gemini calls inside one ~10s function window,
+    // which is exactly what caused 504 timeouts before. If any group is missing a
+    // meaning, the caller (the browser) retries just that specific group as its own
+    // separate, fast request.
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
