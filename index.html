@@ -606,26 +606,31 @@
   function hideError(){ errorBox.classList.remove('show'); }
 
   let rateLimitTimer = null;
-  function startRateLimitCountdown(seconds){
+  function startRateLimitCountdown(seconds, onDone, disableBtn){
     clearInterval(rateLimitTimer);
     let remaining = seconds;
     const render = () => {
       showError('⏳ Free plan rate limit reached (max requests per minute) — automatically retrying in ' +
-        remaining + 's. No action needed, or tap the button once it re-enables.');
+        remaining + 's. No action needed.');
     };
-    analyzeBtn.disabled = true;
+    if (disableBtn) disableBtn.disabled = true;
     render();
     rateLimitTimer = setInterval(() => {
       remaining -= 1;
       if (remaining <= 0) {
         clearInterval(rateLimitTimer);
         hideError();
-        analyzeBtn.disabled = false;
-        analyzeBtn.click(); // auto-retry now that the rate limit window has passed
+        if (disableBtn) disableBtn.disabled = false;
+        onDone();
       } else {
         render();
       }
     }, 1000);
+  }
+
+  function parseRetrySeconds(message){
+    const m = (message || '').match(/retry in ([\d.]+)\s*s/i);
+    return m ? Math.ceil(parseFloat(m[1])) : null;
   }
 
   // ---------- tabs ----------
@@ -711,7 +716,12 @@
       if (!cleaned) showError("Couldn't find text in that image — try a clearer photo, or type the word manually.");
     } catch (err) {
       console.error(err);
-      showError('Scanning failed (' + (err.message || 'unknown error') + '). Try again, or switch to "Type it myself".');
+      const retrySeconds = parseRetrySeconds(err.message);
+      if (retrySeconds) {
+        startRateLimitCountdown(retrySeconds, () => handleImage(file), null);
+      } else {
+        showError('Scanning failed (' + (err.message || 'unknown error') + '). Try again, or switch to "Type it myself".');
+      }
     } finally {
       ocrStatus.classList.remove('show');
     }
@@ -995,9 +1005,9 @@
       }).filter(Boolean);
 
       if (translationFailed) {
-        const retryMatch = failReason.match(/retry in ([\d.]+)\s*s/i);
-        if (retryMatch) {
-          startRateLimitCountdown(Math.ceil(parseFloat(retryMatch[1])));
+        const retrySeconds = parseRetrySeconds(failReason);
+        if (retrySeconds) {
+          startRateLimitCountdown(retrySeconds, () => analyzeBtn.click(), analyzeBtn);
         } else {
           showError('⚠️ Translation request failed (' + failReason + ') — this is usually Gemini being briefly overloaded, or the shared free quota being busy. Tap "Show me how to read this" again in a moment to retry. Readings and romaji below are still accurate.', true);
         }
