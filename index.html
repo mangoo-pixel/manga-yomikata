@@ -605,6 +605,29 @@
   function showError(msg){ errorBox.textContent = msg; errorBox.classList.add('show'); }
   function hideError(){ errorBox.classList.remove('show'); }
 
+  let rateLimitTimer = null;
+  function startRateLimitCountdown(seconds){
+    clearInterval(rateLimitTimer);
+    let remaining = seconds;
+    const render = () => {
+      showError('⏳ Free plan rate limit reached (max requests per minute) — automatically retrying in ' +
+        remaining + 's. No action needed, or tap the button once it re-enables.');
+    };
+    analyzeBtn.disabled = true;
+    render();
+    rateLimitTimer = setInterval(() => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        clearInterval(rateLimitTimer);
+        hideError();
+        analyzeBtn.disabled = false;
+        analyzeBtn.click(); // auto-retry now that the rate limit window has passed
+      } else {
+        render();
+      }
+    }, 1000);
+  }
+
   // ---------- tabs ----------
   tabPhoto.addEventListener('click', () => {
     tabPhoto.classList.add('active'); tabType.classList.remove('active');
@@ -851,9 +874,16 @@
     throw lastErr;
   }
 
-  // ---------- translation (Gemini, context-aware — one call per analyze) ----------
+  // ---------- translation (Gemini, context-aware) ----------
+  // Two separate calls run in parallel: one analyzes words/compounds (translate),
+  // one translates the full text (translate-sentence). Splitting these keeps each
+  // request lighter/faster than doing both jobs in a single call, which was pushing
+  // response times close to Netlify's ~10s function timeout on longer scans.
   async function translateBatch(sentence, words){
     return fetchWithRetry('/.netlify/functions/translate', { sentence, words });
+  }
+  async function translateSentence(sentence){
+    return fetchWithRetry('/.netlify/functions/translate-sentence', { sentence });
   }
 
   const POS_LABEL = {
@@ -899,9 +929,12 @@
       analyzeStatusText.textContent = 'Looking up meanings…';
       let groups = [], sentenceEn = '', translationFailed = false, failReason = '';
       try {
-        const result = await translateBatch(text, dictForms);
-        groups = result.groups || [];
-        sentenceEn = result.sentenceTranslation || '';
+        const [wordResult, sentenceResult] = await Promise.all([
+          translateBatch(text, dictForms),
+          translateSentence(text).catch(e => { console.error('Sentence translation failed:', e); return null; })
+        ]);
+        groups = wordResult.groups || [];
+        sentenceEn = sentenceResult ? (sentenceResult.translation || '') : '';
 
         // If any group came back with no meaning, retry just that group's own words
         // as a second, separate, fast request — each request stays a single Gemini
@@ -962,7 +995,12 @@
       }).filter(Boolean);
 
       if (translationFailed) {
-        showError('⚠️ Translation request failed (' + failReason + ') — this is usually Gemini being briefly overloaded, or the shared free quota being busy. Tap "Show me how to read this" again in a moment to retry. Readings and romaji below are still accurate.', true);
+        const retryMatch = failReason.match(/retry in ([\d.]+)\s*s/i);
+        if (retryMatch) {
+          startRateLimitCountdown(Math.ceil(parseFloat(retryMatch[1])));
+        } else {
+          showError('⚠️ Translation request failed (' + failReason + ') — this is usually Gemini being briefly overloaded, or the shared free quota being busy. Tap "Show me how to read this" again in a moment to retry. Readings and romaji below are still accurate.', true);
+        }
       }
 
       renderResults(wordResults, text, sentenceEn);
