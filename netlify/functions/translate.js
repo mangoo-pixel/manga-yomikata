@@ -30,7 +30,11 @@ exports.handler = async (event) => {
       return { statusCode: 500, body: JSON.stringify({ error: 'Server is missing GEMINI_API_KEY' }) };
     }
 
-    const wordList = words.slice(0, 80); // safety cap — positions preserved, no dedup
+    // Safety cap only, not a normal ceiling — a dense full manga page with several
+    // speech bubbles easily tokenizes to 80-100+ words, so 80 was cutting real content
+    // off silently. 150 comfortably covers a full page while still guarding against
+    // pathological inputs (e.g. accidentally scanning many pages at once).
+    const wordList = words.slice(0, 150);
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
 
     function buildPrompt(){
@@ -60,11 +64,8 @@ exports.handler = async (event) => {
         'grammatical function (e.g. "counter for cups", "possessive particle"). Never leave empty.\n\n' +
         'EVERY position number from 0 to ' + (wordList.length - 1) + ' must appear in EXACTLY ONE group\'s ' +
         '"ids" array — no number skipped, no number in two groups.\n\n' +
-        'Also provide "full_translation": a COMPLETE English translation of the ENTIRE source text above, ' +
-        'start to finish — do not summarize, shorten, or omit any part. If it contains multiple separate ' +
-        'speech bubbles or captions, translate ALL of them in order, separated by " / ".\n\n' +
         'Respond with ONLY valid JSON, no other text, no markdown code fences, in exactly this shape:\n' +
-        '{"full_translation": "...", "groups": [{"ids": [0], "reading": "...", "meaning": "..."}, ' +
+        '{"groups": [{"ids": [0], "reading": "...", "meaning": "..."}, ' +
         '{"ids": [1,2,3], "reading": "...", "meaning": "..."}]}';
     }
 
@@ -108,7 +109,7 @@ exports.handler = async (event) => {
       }
       groups.sort((a, b) => a.ids[0] - b.ids[0]);
 
-      return { sentenceTranslation: parsed.full_translation || '', groups };
+      return { groups };
     }
 
     const result = await callGemini();
