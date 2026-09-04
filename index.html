@@ -870,9 +870,10 @@
           throw new Error('server error, status ' + res.status + hint);
         }
         if (!res.ok) {
+          const errMsg = (data.error || 'request failed') + ' (HTTP ' + res.status + ')';
           const retryable = res.status === 502 || res.status === 503 || res.status === 504;
-          if (retryable && attempt < maxAttempts) { lastErr = new Error(data.error || 'request failed'); continue; }
-          throw new Error(data.error || 'request failed');
+          if (retryable && attempt < maxAttempts) { lastErr = new Error(errMsg); continue; }
+          throw new Error(errMsg);
         }
         return data;
       } catch (err) {
