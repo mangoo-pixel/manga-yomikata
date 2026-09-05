@@ -871,7 +871,7 @@
         }
         if (!res.ok) {
           const errMsg = (data.error || 'request failed') + ' (HTTP ' + res.status + ')';
-          const retryable = res.status === 502 || res.status === 503 || res.status === 504;
+          const retryable = res.status === 500 || res.status === 502 || res.status === 503 || res.status === 504;
           if (retryable && attempt < maxAttempts) { lastErr = new Error(errMsg); continue; }
           throw new Error(errMsg);
         }
@@ -895,6 +895,42 @@
   }
   async function translateSentence(sentence){
     return fetchWithRetry('/.netlify/functions/translate-sentence', { sentence });
+  }
+
+  // A large word list (dense full-page scans) makes ONE /translate call slow enough
+  // to risk the same ~10s timeout — so split it into smaller chunks and run them in
+  // PARALLEL, same principle as the translate/translate-sentence split above. Chunk
+  // boundaries can occasionally cut through what would've been a merged compound —
+  // an acceptable trade-off for reliability on dense pages.
+  // Larger than before on purpose: smaller chunks meant more PARALLEL requests per
+  // scan, which fixed per-request timeouts but burns through the shared 20-req/minute
+  // rate limit much faster on dense pages. This balances both failure modes.
+  const TRANSLATE_CHUNK_SIZE = 60;
+  async function translateBatchChunked(sentence, words){
+    if (words.length <= TRANSLATE_CHUNK_SIZE) return translateBatch(sentence, words);
+
+    const chunks = [];
+    for (let i = 0; i < words.length; i += TRANSLATE_CHUNK_SIZE) {
+      chunks.push({ start: i, words: words.slice(i, i + TRANSLATE_CHUNK_SIZE) });
+    }
+    const results = await Promise.all(chunks.map(c =>
+      translateBatch(sentence, c.words)
+        .then(r => ({ ok: true, start: c.start, groups: r.groups || [] }))
+        .catch(e => { console.error('Chunk failed:', e); return { ok: false, start: c.start, count: c.words.length }; })
+    ));
+
+    const groups = [];
+    results.forEach(r => {
+      if (r.ok) {
+        r.groups.forEach(g => groups.push({ ids: g.ids.map(id => id + r.start), reading: g.reading, meaning: g.meaning }));
+      } else {
+        // That chunk failed outright — still produce placeholder entries so those
+        // specific words show up (gap-fill will retry them) rather than vanishing.
+        for (let i = 0; i < r.count; i++) groups.push({ ids: [r.start + i], reading: '', meaning: '' });
+      }
+    });
+    groups.sort((a, b) => a.ids[0] - b.ids[0]);
+    return { groups };
   }
 
   const POS_LABEL = {
@@ -941,7 +977,7 @@
       let groups = [], sentenceEn = '', translationFailed = false, failReason = '';
       try {
         const [wordResult, sentenceResult] = await Promise.all([
-          translateBatch(text, dictForms),
+          translateBatchChunked(text, dictForms),
           translateSentence(text).catch(e => { console.error('Sentence translation failed:', e); return null; })
         ]);
         groups = wordResult.groups || [];
