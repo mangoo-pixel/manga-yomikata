@@ -913,11 +913,21 @@
     for (let i = 0; i < words.length; i += TRANSLATE_CHUNK_SIZE) {
       chunks.push({ start: i, words: words.slice(i, i + TRANSLATE_CHUNK_SIZE) });
     }
-    const results = await Promise.all(chunks.map(c =>
-      translateBatch(sentence, c.words)
-        .then(r => ({ ok: true, start: c.start, groups: r.groups || [] }))
-        .catch(e => { console.error('Chunk failed:', e); return { ok: false, start: c.start, count: c.words.length }; })
-    ));
+
+    // Sequential on purpose — firing all chunks in parallel meant one scan could burn
+    // 3-6+ requests against the shared 20-per-minute limit simultaneously, which is
+    // what caused the repeating "quota exceeded" cascade. One at a time is slower per
+    // scan, but it actually respects the rate limit instead of bursting past it.
+    const results = [];
+    for (const c of chunks) {
+      try {
+        const r = await translateBatch(sentence, c.words);
+        results.push({ ok: true, start: c.start, groups: r.groups || [] });
+      } catch (e) {
+        console.error('Chunk failed:', e);
+        results.push({ ok: false, start: c.start, count: c.words.length });
+      }
+    }
 
     const groups = [];
     results.forEach(r => {
@@ -976,18 +986,30 @@
       analyzeStatusText.textContent = 'Looking up meanings…';
       let groups = [], sentenceEn = '', translationFailed = false, failReason = '';
       try {
-        const [wordResult, sentenceResult] = await Promise.all([
-          translateBatchChunked(text, dictForms),
-          translateSentence(text).catch(e => { console.error('Sentence translation failed:', e); return null; })
-        ]);
+        // Sequential on purpose — firing these two calls in parallel doubled the
+        // simultaneous load against the shared 20-per-minute limit on every single
+        // scan, which is what caused repeating "quota exceeded" errors that never
+        // seemed to clear. One at a time actually respects the limit.
+        const wordResult = await translateBatchChunked(text, dictForms);
         groups = wordResult.groups || [];
-        sentenceEn = sentenceResult ? (sentenceResult.translation || '') : '';
 
-        // If any group came back with no meaning, retry just that group's own words
-        // as a second, separate, fast request — each request stays a single Gemini
-        // call, so this can't compound into a timeout the way a server-side retry would.
+        analyzeStatusText.textContent = 'Translating the full line…';
+        let sentenceFailed = false;
+        try {
+          const sentenceResult = await translateSentence(text);
+          sentenceEn = sentenceResult.translation || '';
+        } catch (e) {
+          console.error('Sentence translation failed:', e);
+          sentenceFailed = true;
+        }
+
+        // If any group came back with no meaning, retry just that group's own words —
+        // but skip this entirely if we're already rate-limited (sentence call just
+        // failed on quota), since piling more requests onto an already-saturated
+        // window only makes the wait longer for everyone, including this scan.
         const gapGroups = groups.filter(g => !g.meaning || !g.meaning.trim());
-        if (gapGroups.length) {
+        if (gapGroups.length && !sentenceFailed) {
+          analyzeStatusText.textContent = 'Filling in a few missing words…';
           try {
             for (const g of gapGroups) {
               const subWords = g.ids.map(id => dictForms[id]);
