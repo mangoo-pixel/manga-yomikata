@@ -69,8 +69,10 @@
     display:flex;align-items:center;gap:14px;flex-wrap:wrap;
   }
   .word-main{min-width:84px;}
-  .word-kanji{font-family:'Noto Sans JP',sans-serif;font-weight:700;font-size:22px;line-height:1.15;}
-  .word-kana{font-family:'Noto Sans JP',sans-serif;font-size:13px;color:var(--ink-soft);}
+  .word-kanji{font-family:'Noto Sans JP',sans-serif;font-weight:700;font-size:22px;line-height:1.15;ruby-position:over;}
+  .word-kanji rt{font-family:'Noto Sans JP',sans-serif;font-weight:400;font-size:12px;color:var(--ink-soft);}
+  .speak-btn{font-size:15px;background:#fff;border:1.5px solid var(--ink);border-radius:3px;padding:5px 9px;cursor:pointer;line-height:1;}
+  .speak-btn:hover{background:#F0C93B;}
   .word-romaji{font-size:13px;font-weight:700;color:var(--red);text-transform:lowercase;}
   .word-mid{flex:1;min-width:140px;}
   .word-en{font-size:14.5px;}
@@ -325,25 +327,39 @@
     }
   }
 
+  function speakJapanese(text){
+    if (!('speechSynthesis' in window) || !text) return;
+    speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = 'ja-JP';
+    utter.rate = 0.85;
+    speechSynthesis.speak(utter);
+  }
+
   function renderList(rows){
     vocabList.innerHTML = '';
     emptyHint.style.display = rows.length ? 'none' : 'block';
     rows.forEach(r => {
       const card = document.createElement('div');
       card.className = 'word-card';
+      const hiraganaReading = katakanaToHiragana(r.reading || '');
       card.innerHTML =
         '<input type="checkbox" class="word-checkbox' + (selectMode ? ' show' : '') + '" ' +
           (selectedIds.has(r.id) ? 'checked' : '') + '>' +
         '<div class="word-main">' +
-          '<div class="word-kanji jp">' + escapeHtml(r.surface) + '</div>' +
-          '<div class="word-kana jp">' + escapeHtml(katakanaToHiragana(r.reading || '')) + '</div>' +
+          '<ruby class="word-kanji jp">' + escapeHtml(r.surface) + '<rt>' + escapeHtml(hiraganaReading) + '</rt></ruby>' +
           '<div class="word-romaji">' + escapeHtml(r.romaji || '') + '</div>' +
         '</div>' +
         '<div class="word-mid">' +
           '<div class="word-en">' + escapeHtml(r.meaning || '') + '</div>' +
           (r.source_note ? '<div class="word-source">from: ' + escapeHtml(r.source_note) + '</div>' : '') +
         '</div>' +
-        (selectMode ? '' : '<button class="remove-btn" data-id="' + r.id + '">Remove</button>');
+        (selectMode ? '' :
+          '<div style="display:flex;flex-direction:column;gap:6px;">' +
+            '<button class="speak-btn" title="Hear it pronounced">🔊</button>' +
+            '<button class="remove-btn" data-id="' + r.id + '">Remove</button>' +
+          '</div>'
+        );
 
       const checkbox = card.querySelector('.word-checkbox');
       checkbox.addEventListener('change', () => {
@@ -358,6 +374,7 @@
           checkbox.dispatchEvent(new Event('change'));
         });
       } else {
+        card.querySelector('.speak-btn').addEventListener('click', () => speakJapanese(hiraganaReading || r.surface));
         const removeBtn = card.querySelector('.remove-btn');
         removeBtn.addEventListener('click', async (e) => {
           const id = e.target.getAttribute('data-id');
