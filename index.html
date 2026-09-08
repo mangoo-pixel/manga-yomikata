@@ -304,11 +304,14 @@
     font-weight:700;
     font-size:22px;
     line-height:1.15;
+    ruby-position: over;
   }
-  .word-kana{
+  .word-kanji rt{
     font-family:'Noto Sans JP',sans-serif;
-    font-size:13px;
+    font-weight:400;
+    font-size:12px;
     color:var(--ink-soft);
+    letter-spacing:0;
   }
   .word-romaji{
     font-size:13px;
@@ -316,6 +319,7 @@
     color:var(--red);
     text-transform:lowercase;
     letter-spacing:.02em;
+    margin-top:2px;
   }
   .word-mid{flex:1;min-width:140px;}
   .word-en{font-size:14.5px;}
@@ -343,6 +347,16 @@
   .jisho-link:hover{background:var(--ink);color:var(--paper);}
 
   .word-actions{display:flex;flex-direction:column;gap:6px;align-items:stretch;}
+  .speak-btn{
+    font-size:15px;
+    background:#fff;
+    border:1.5px solid var(--ink);
+    border-radius:3px;
+    padding:5px 9px;
+    cursor:pointer;
+    line-height:1;
+  }
+  .speak-btn:hover{background:var(--yellow);}
   .save-btn{
     font-family:'Inter',sans-serif;
     font-size:12px;
@@ -386,7 +400,7 @@
   </div>
 
   <div class="account-bar" id="accountBarLoggedIn" style="display:none;">
-    <span class="hint" style="margin:0;">Signed in as <b id="userEmail"></b></span>
+    <span class="hint" style="margin:0;">Signed in as <b id="userEmail"></b> · <span id="scanStatus">…</span></span>
     <div class="account-row">
       <a class="pill-btn filled" href="notebook.html">📒 My Notebook <span class="notebook-count" id="vocabCount">0</span></a>
       <a class="pill-btn outline" href="review.html">🎴 Review</a>
@@ -502,11 +516,76 @@
       accountBarLoggedIn.style.display = 'flex';
       userEmailEl.textContent = currentUser.email;
       refreshVocabCount();
+      refreshScanStatus();
     } else {
       accountBarLoggedOut.style.display = 'block';
       accountBarLoggedIn.style.display = 'none';
     }
   });
+
+  const FREE_DAILY_SCAN_LIMIT = 5;
+  const scanStatusEl = document.getElementById('scanStatus');
+
+  async function getProfile(){
+    const { data, error } = await sb.from('profiles')
+      .select('is_unlocked, scans_today, scan_date')
+      .eq('id', currentUser.id).single();
+    if (error) throw error;
+    return data;
+  }
+
+  async function refreshScanStatus(){
+    if (!currentUser) return;
+    try {
+      const profile = await getProfile();
+      if (profile.is_unlocked) {
+        scanStatusEl.textContent = '✨ Unlimited';
+        return;
+      }
+      const today = new Date().toISOString().slice(0, 10);
+      const usedToday = profile.scan_date === today ? (profile.scans_today || 0) : 0;
+      scanStatusEl.textContent = Math.max(0, FREE_DAILY_SCAN_LIMIT - usedToday) + '/' + FREE_DAILY_SCAN_LIMIT + ' scans left today';
+    } catch (err) {
+      console.error('Could not load scan status:', err);
+      scanStatusEl.textContent = '';
+    }
+  }
+
+  // Checks the free-tier daily limit and consumes one credit if allowed.
+  // Note: this check runs as the signed-in user via Supabase's row-level security,
+  // so it's good protection against accidentally overusing the shared free API quota —
+  // but like any client-side check, a determined technical user could bypass it by
+  // calling the backend directly. That's an acceptable trade-off for a small pilot;
+  // real abuse-proofing would need server-side verification if it ever becomes an issue.
+  async function checkAndConsumeScanQuota(){
+    if (!currentUser) {
+      showError('Sign in at the top of the page first to use the scanner.');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return false;
+    }
+    try {
+      const profile = await getProfile();
+      if (profile.is_unlocked) return true; // unlimited
+
+      const today = new Date().toISOString().slice(0, 10);
+      const usedToday = profile.scan_date === today ? (profile.scans_today || 0) : 0;
+
+      if (usedToday >= FREE_DAILY_SCAN_LIMIT) {
+        showError('You\'ve used all ' + FREE_DAILY_SCAN_LIMIT + ' free scans for today. Come back tomorrow, or unlock unlimited scans + flashcard review with a one-time purchase.');
+        return false;
+      }
+
+      const { error } = await sb.from('profiles')
+        .update({ scans_today: usedToday + 1, scan_date: today })
+        .eq('id', currentUser.id);
+      if (error) throw error;
+      refreshScanStatus();
+      return true;
+    } catch (err) {
+      console.error('Could not check scan quota — allowing scan to proceed:', err);
+      return true; // fail open — a hiccup in our own tracking shouldn't block real use
+    }
+  }
 
   async function refreshVocabCount(){
     if (!currentUser) return;
@@ -553,8 +632,26 @@
     }
 
     btnEl.disabled = true;
-    btnEl.textContent = 'Saving…';
+    btnEl.textContent = 'Checking…';
     try {
+      // Warn if this exact word is already in the notebook from a previous scan/session
+      // (this button's own dataset only tracks saves made THIS render — an earlier save
+      // of the same word elsewhere wouldn't be reflected there).
+      const { data: existing, error: findError } = await sb.from('vocab')
+        .select('id').eq('user_id', currentUser.id).eq('surface', word.surface).limit(1);
+      if (findError) throw findError;
+
+      if (existing && existing.length) {
+        const replace = confirm('"' + word.surface + '" is already in your notebook. Replace the saved version with this one?');
+        if (!replace) {
+          btnEl.disabled = false;
+          btnEl.textContent = 'Save';
+          return;
+        }
+        await sb.from('vocab').delete().eq('id', existing[0].id);
+      }
+
+      btnEl.textContent = 'Saving…';
       const { data, error } = await sb.from('vocab').insert([{
         user_id: currentUser.id,
         surface: word.surface,
@@ -959,10 +1056,18 @@
   }
 
   // ---------- main analyze flow ----------
+  let lastChargedText = null; // avoids double-charging when auto-retry re-clicks the same text
+
   analyzeBtn.addEventListener('click', async () => {
     hideError();
     const text = textArea.value.trim();
     if (!text) { showError('Add some Japanese text first — type it, paste it, or scan a photo.'); return; }
+
+    if (text !== lastChargedText) {
+      const allowed = await checkAndConsumeScanQuota();
+      if (!allowed) return;
+      lastChargedText = text;
+    }
 
     analyzeBtn.disabled = true;
     analyzeStatus.classList.add('show');
@@ -1102,10 +1207,10 @@
     words.forEach(w => {
       const card = document.createElement('div');
       card.className = 'word-card';
+      const hiraganaReading = katakanaToHiragana(w.reading);
       card.innerHTML =
         '<div class="word-main">' +
-          '<div class="word-kanji jp">' + escapeHtml(w.surface) + '</div>' +
-          '<div class="word-kana jp">' + escapeHtml(katakanaToHiragana(w.reading)) + '</div>' +
+          '<ruby class="word-kanji jp">' + escapeHtml(w.surface) + '<rt>' + escapeHtml(hiraganaReading) + '</rt></ruby>' +
           '<div class="word-romaji">' + escapeHtml(w.romaji) + '</div>' +
         '</div>' +
         '<div class="word-mid">' +
@@ -1117,9 +1222,11 @@
           (w.pos ? '<span class="word-pos">' + escapeHtml(w.pos) + '</span>' : '') +
         '</div>' +
         '<div class="word-actions">' +
+          '<button class="speak-btn" title="Hear it pronounced">🔊</button>' +
           '<button class="save-btn">Save</button>' +
           '<a class="jisho-link" target="_blank" rel="noopener" href="https://jisho.org/search/' + encodeURIComponent(w.surface) + '">Jisho ↗</a>' +
         '</div>';
+      card.querySelector('.speak-btn').addEventListener('click', () => speakJapanese(hiraganaReading || w.surface));
       card.querySelector('.save-btn').addEventListener('click', (e) => {
         saveOneWord(w, findSourceLine(originalText, w.surface), e.target);
       });
@@ -1147,6 +1254,16 @@
 
   // Convert katakana reading to hiragana for display — dictionaries show plain-word
   // readings in hiragana; katakana is normally reserved for loanwords/emphasis.
+  // Free, built into every modern browser — no API calls, no cost.
+  function speakJapanese(text){
+    if (!('speechSynthesis' in window) || !text) return;
+    speechSynthesis.cancel(); // stop anything already playing
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = 'ja-JP';
+    utter.rate = 0.85; // slightly slower — easier to follow while learning
+    speechSynthesis.speak(utter);
+  }
+
   function katakanaToHiragana(str){
     if (!str) return str;
     return str.replace(/[\u30A1-\u30F6]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0x60));
