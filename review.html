@@ -86,6 +86,11 @@
   .card-word-small{font-family:'Noto Sans JP',sans-serif;font-weight:700;font-size:26px;color:var(--ink-soft);margin-bottom:10px;}
   .card-reading{font-family:'Noto Sans JP',sans-serif;font-size:18px;color:var(--ink-soft);margin-bottom:4px;}
   .card-romaji{font-size:15px;font-weight:700;color:var(--red);margin-bottom:14px;}
+  #speakBtn{
+    display:inline-flex;align-items:center;gap:6px;font-family:'Inter',sans-serif;font-size:13px;font-weight:600;
+    background:#fff;border:1.5px solid var(--ink);border-radius:20px;padding:7px 14px;cursor:pointer;margin-bottom:14px;
+  }
+  #speakBtn:hover{background:var(--yellow);}
   .card-meaning{font-size:20px;font-weight:600;}
   .card-source{font-size:12px;color:var(--ink-soft);margin-top:10px;}
 
@@ -183,6 +188,7 @@
           <div class="card-word-small jp" id="backWord"></div>
           <div class="card-reading jp" id="backReading"></div>
           <div class="card-romaji" id="backRomaji"></div>
+          <button class="speak-btn" id="speakBtn" title="Hear it pronounced">🔊 Play sound</button>
           <div class="card-meaning" id="backMeaning"></div>
           <div class="card-source" id="backSource"></div>
         </div>
@@ -360,6 +366,20 @@
     cardIndexEl.textContent = pos + 1;
     cardTotalEl.textContent = deck.length;
   }
+
+  function speakJapanese(text){
+    if (!('speechSynthesis' in window) || !text) return;
+    speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = 'ja-JP';
+    utter.rate = 0.85;
+    speechSynthesis.speak(utter);
+  }
+  document.getElementById('speakBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const card = deck[pos];
+    if (card) speakJapanese(katakanaToHiragana(card.reading || '') || card.surface);
+  });
 
   cardStage.addEventListener('click', () => {
     if (revealed) return;
