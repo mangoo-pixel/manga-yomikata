@@ -391,7 +391,7 @@
   <p>Snap or paste any word you can't read yet. Get the kana reading, romaji, and English meaning — so you can keep reading instead of stopping to look things up.</p>
 
   <div class="account-bar" id="accountBarLoggedOut">
-    <span class="hint" style="margin:0;">Sign in to save every word you look up:</span>
+    <span class="hint" style="margin:0;">Try it free — <span id="anonTrialStatus">…</span>. Sign in anytime to save words and get 5 scans/day:</span>
     <div class="account-row">
       <input type="email" id="emailInput" placeholder="you@email.com">
       <button class="ghost" id="signInBtn">Send magic link</button>
@@ -524,7 +524,21 @@
   });
 
   const FREE_DAILY_SCAN_LIMIT = 5;
+  const ANON_TRIAL_LIMIT = 2;
   const scanStatusEl = document.getElementById('scanStatus');
+  const anonTrialStatusEl = document.getElementById('anonTrialStatus');
+
+  function getAnonScansUsed(){
+    return parseInt(localStorage.getItem('anonScansUsed') || '0', 10);
+  }
+  function refreshAnonTrialStatus(){
+    if (!anonTrialStatusEl) return;
+    const used = getAnonScansUsed();
+    const left = Math.max(0, ANON_TRIAL_LIMIT - used);
+    anonTrialStatusEl.textContent = left > 0
+      ? left + ' free scan' + (left === 1 ? '' : 's') + ' left'
+      : 'trial used up';
+  }
 
   async function getProfile(){
     const { data, error } = await sb.from('profiles')
@@ -551,17 +565,25 @@
     }
   }
 
-  // Checks the free-tier daily limit and consumes one credit if allowed.
-  // Note: this check runs as the signed-in user via Supabase's row-level security,
-  // so it's good protection against accidentally overusing the shared free API quota —
-  // but like any client-side check, a determined technical user could bypass it by
-  // calling the backend directly. That's an acceptable trade-off for a small pilot;
-  // real abuse-proofing would need server-side verification if it ever becomes an issue.
+  // Checks the usage limit and consumes one credit if allowed. Two tiers:
+  // - Not signed in: a small anonymous trial (tracked in this browser's local storage)
+  //   so a first-time visitor can see the tool actually work before being asked to sign in.
+  // - Signed in: the real daily limit, tracked server-side per account.
+  // Note: both are client-side checks — good protection against accidentally overusing
+  // the shared free API quota, but not airtight against a determined technical user
+  // calling the backend directly. Acceptable trade-off for a small pilot; real
+  // abuse-proofing would need server-side verification if it ever becomes an issue.
   async function checkAndConsumeScanQuota(){
     if (!currentUser) {
-      showError('Sign in at the top of the page first to use the scanner.');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      return false;
+      const used = getAnonScansUsed();
+      if (used >= ANON_TRIAL_LIMIT) {
+        showError('You\'ve used your ' + ANON_TRIAL_LIMIT + ' free trial scans. Sign in above (it\'s free) to keep going — 5 scans/day, plus you can save words to your own notebook.');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return false;
+      }
+      localStorage.setItem('anonScansUsed', String(used + 1));
+      refreshAnonTrialStatus();
+      return true;
     }
     try {
       const profile = await getProfile();
@@ -586,6 +608,8 @@
       return true; // fail open — a hiccup in our own tracking shouldn't block real use
     }
   }
+
+  refreshAnonTrialStatus(); // show trial status immediately on page load, before any sign-in state is known
 
   async function refreshVocabCount(){
     if (!currentUser) return;
