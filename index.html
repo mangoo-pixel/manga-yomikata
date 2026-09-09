@@ -540,11 +540,25 @@
       : 'trial used up';
   }
 
+  async function handleAuthError(error){
+    const status = error?.status || error?.code;
+    const looksExpired = status === 401 || status === '401' ||
+      /jwt|token|expired|unauthorized/i.test(error?.message || '');
+    if (looksExpired && currentUser) {
+      console.warn('Session appears expired — signing out cleanly.');
+      await sb.auth.signOut();
+      showError('Your sign-in session expired (this can happen after the tab sits idle for a while). Please sign in again above.');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return true;
+    }
+    return false;
+  }
+
   async function getProfile(){
     const { data, error } = await sb.from('profiles')
       .select('is_unlocked, scans_today, scan_date')
       .eq('id', currentUser.id).single();
-    if (error) throw error;
+    if (error) { await handleAuthError(error); throw error; }
     return data;
   }
 
