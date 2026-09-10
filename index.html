@@ -500,7 +500,11 @@
       signInStatus.textContent = 'Check your email for a sign-in link!';
     } catch (err) {
       console.error('Sign-in error:', err);
-      signInStatus.textContent = 'Couldn\'t send that link — check your email address and try again.';
+      if (/rate limit|too many/i.test(err.message || '')) {
+        signInStatus.textContent = 'Too many sign-in emails sent recently — please wait about an hour and try again. (This is a shared limit, not tied to any specific device.)';
+      } else {
+        signInStatus.textContent = 'Couldn\'t send that link — check your email address and try again.';
+      }
     } finally {
       signInBtn.disabled = false;
     }
@@ -1139,7 +1143,11 @@
     try {
       await initKuromojiWorker();
       analyzeStatusText.textContent = 'Breaking down the text…';
-      const tokens = (await tokenizeInWorker(text)).filter(t => !isSkippable(t));
+      // Strip social-media-style @handles before tokenizing — usernames aren't real
+      // vocabulary, and splitting one up produces meaningless leftover fragments
+      // (e.g. a chopped piece of a handle showing up as an unlearnable "word").
+      const textForTokenizing = text.replace(/@[^\s　]+/g, ' ');
+      const tokens = (await tokenizeInWorker(textForTokenizing)).filter(t => !isSkippable(t));
 
       if (!tokens.length) {
         showError('No readable Japanese words found in that text.');
