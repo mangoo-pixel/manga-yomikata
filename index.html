@@ -391,7 +391,7 @@
   <p>Snap or paste any word you can't read yet. Get the kana reading, romaji, and English meaning — so you can keep reading instead of stopping to look things up.</p>
 
   <div class="account-bar" id="accountBarLoggedOut">
-    <span class="hint" style="margin:0;">Try it free — <span id="anonTrialStatus">…</span>. Sign in anytime to save words and get 5 scans/day:</span>
+    <span class="hint" style="margin:0;">👋 Try it free (<span id="anonTrialStatus">…</span>) — or sign in to save words:</span>
     <div class="account-row">
       <input type="email" id="emailInput" placeholder="you@email.com">
       <button class="ghost" id="signInBtn">Send magic link</button>
@@ -499,7 +499,8 @@
       if (error) throw error;
       signInStatus.textContent = 'Check your email for a sign-in link!';
     } catch (err) {
-      signInStatus.textContent = 'Error: ' + (err.message || err);
+      console.error('Sign-in error:', err);
+      signInStatus.textContent = 'Couldn\'t send that link — check your email address and try again.';
     } finally {
       signInBtn.disabled = false;
     }
@@ -620,6 +621,31 @@
     } catch (err) {
       console.error('Could not check scan quota — allowing scan to proceed:', err);
       return true; // fail open — a hiccup in our own tracking shouldn't block real use
+    }
+  }
+
+  // Gives back the credit consumed by checkAndConsumeScanQuota when a scan fails badly
+  // enough that the user didn't actually get usable results — being charged for a
+  // failed attempt (e.g. hitting the shared rate limit) isn't fair, especially against
+  // a small anonymous trial allowance.
+  async function refundScanQuota(){
+    if (!currentUser) {
+      const used = getAnonScansUsed();
+      if (used > 0) {
+        localStorage.setItem('anonScansUsed', String(used - 1));
+        refreshAnonTrialStatus();
+      }
+      return;
+    }
+    try {
+      const profile = await getProfile();
+      const today = new Date().toISOString().slice(0, 10);
+      if (profile.scan_date === today && (profile.scans_today || 0) > 0) {
+        await sb.from('profiles').update({ scans_today: profile.scans_today - 1 }).eq('id', currentUser.id);
+        refreshScanStatus();
+      }
+    } catch (err) {
+      console.error('Could not refund scan quota:', err);
     }
   }
 
@@ -745,8 +771,7 @@
     clearInterval(rateLimitTimer);
     let remaining = seconds;
     const render = () => {
-      showError('⏳ Free plan rate limit reached (max requests per minute) — automatically retrying in ' +
-        remaining + 's. No action needed.');
+      showError('⏳ Lots of activity right now — trying again automatically in ' + remaining + 's. No need to do anything.');
     };
     if (disableBtn) disableBtn.disabled = true;
     render();
@@ -855,7 +880,7 @@
       if (retrySeconds) {
         startRateLimitCountdown(retrySeconds, () => handleImage(file), null);
       } else {
-        showError('Scanning failed (' + (err.message || 'unknown error') + '). Try again, or switch to "Type it myself".');
+        showError('That scan didn\'t go through. Please try again in a moment, or switch to "Type it myself".');
       }
     } finally {
       ocrStatus.classList.remove('show');
@@ -1169,6 +1194,7 @@
         console.error(e);
         translationFailed = true;
         failReason = e.message || 'unknown error';
+        refundScanQuota();
       }
 
       const isValidKana = s => /^[\u3040-\u30FF\u30FCー゜゛\s]*$/.test(s || '');
@@ -1211,14 +1237,17 @@
         if (retrySeconds) {
           startRateLimitCountdown(retrySeconds, () => analyzeBtn.click(), analyzeBtn);
         } else {
-          showError('⚠️ Translation request failed (' + failReason + ') — this is usually Gemini being briefly overloaded, or the shared free quota being busy. Tap "Show me how to read this" again in a moment to retry. Readings and romaji below are still accurate.', true);
+          console.error('Translation failed:', failReason);
+          showError('⚠️ Couldn\'t look up the meanings this time — probably just a busy moment. Tap "Show me how to read this" again in a bit. The readings and romaji below are still accurate.', true);
         }
       }
 
       renderResults(wordResults, text, sentenceEn);
     } catch (err) {
       console.error(err);
-      showError('Something went wrong (' + (err.message || 'unknown error') + '). Check your internet connection and try again.');
+      showError('Something didn\'t work there. Check your internet connection and give it another try.');
+      refundScanQuota();
+      lastChargedText = null; // let a retry attempt count as fresh rather than being blocked as a "duplicate"
     } finally {
       analyzeBtn.disabled = false;
       analyzeStatus.classList.remove('show');
