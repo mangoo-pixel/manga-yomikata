@@ -284,7 +284,8 @@
       if (error) throw error;
       signInStatus.textContent = 'Check your email for a sign-in link!';
     } catch (err) {
-      signInStatus.textContent = 'Error: ' + (err.message || err);
+      console.error('Sign-in error:', err);
+      signInStatus.textContent = 'Couldn\'t send that link — check your email address and try again.';
     } finally {
       signInBtn.disabled = false;
     }
