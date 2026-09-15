@@ -1217,7 +1217,13 @@
       const wordResults = groups.map(g => {
         const groupTokens = g.ids.map(id => tokens[id]).filter(Boolean);
         if (!groupTokens.length) return null;
-        const surface = groupTokens.map(t => t.surface_form).join('');
+        const reconstructedSurface = groupTokens.map(t => t.surface_form).join('');
+        // Prefer Gemini's own reported surface text — its reading/meaning are derived
+        // from what IT considers the word to be, so using its own surface guarantees
+        // the displayed word can never disagree with the reading/meaning shown beside it.
+        // (This is what fixed cases like showing "うま" with the reading/meaning for
+        // "うまい" — the ids-based reconstruction was missing the trailing い.)
+        const surface = (g.surface && g.surface.trim()) ? g.surface.trim() : reconstructedSurface;
         let reading = g.reading;
         if (!reading) {
           // No Gemini reading available (failure case) — fall back to the tokenizer's
