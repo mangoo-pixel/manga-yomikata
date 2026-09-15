@@ -44,19 +44,27 @@ exports.handler = async (event) => {
         'separate speech bubbles, captions, and sound effects concatenated together):\n' + sentence + '\n\n' +
         'A tokenizer has split this text into the following pieces, IN ORDER, numbered by position:\n' +
         numbered + '\n\n' +
-        'IMPORTANT — the tokenizer sometimes WRONGLY splits a real compound word into separate kanji ' +
-        'that are each correct alone but WRONG when read separately as part of the compound. For example ' +
-        '純, 米, 酒 individually read "jun", "bei", "shu" — but as the single compound word 純米酒 (pure rice ' +
-        'sake) they read together as "じゅんまいしゅ" (junmaishu), which is NOT the same as reading each ' +
-        'kanji on its own. When you see CONSECUTIVE numbered pieces like this that form one real compound ' +
-        'word, proper noun, or set phrase — where the combined reading is genuinely different from just ' +
-        'concatenating each piece\'s own reading — merge them into ONE group with the correct combined ' +
-        'reading and meaning for the whole thing.\n\n' +
-        'Do NOT over-merge: ordinary sentences (a noun followed by a particle, a verb followed by its ' +
-        'ending, etc.) should stay as separate, single-piece groups — merging is ONLY for genuine compounds ' +
-        'where reading the pieces separately would give a wrong or unnatural result.\n\n' +
+        'IMPORTANT — the tokenizer sometimes WRONGLY splits a real word into separate pieces that are ' +
+        'each misleading or incomplete alone. Two common cases:\n' +
+        '1. A compound word split into individual kanji: 純, 米, 酒 individually read "jun", "bei", "shu" — ' +
+        'but as the single compound 純米酒 (pure rice sake) they read together as "じゅんまいしゅ" (junmaishu).\n' +
+        '2. A verb or adjective split into its stem and ending: e.g. "うま" + "い" split apart from the ' +
+        'adjective うまい (delicious, "umai") — the stem alone ("うま") is a DIFFERENT word (uma = horse) and ' +
+        'must not be shown or read as if it were the complete word. Same for verbs like "な" + "る" split ' +
+        'from なる (to become, "naru").\n' +
+        'When you see CONSECUTIVE numbered pieces like this that form one real word, compound, proper noun, ' +
+        'or set phrase — where reading/showing the pieces separately would be wrong or incomplete — merge ' +
+        'them into ONE group.\n\n' +
+        'Do NOT over-merge: ordinary sentences (a complete word followed by a separate grammatical particle, ' +
+        'for example) should stay as separate, single-piece groups — merging is ONLY for genuine cases where ' +
+        'a piece alone is wrong or incomplete on its own.\n\n' +
         'Return "groups": one entry per group. Each group has:\n' +
         '- "ids": the array of consecutive position numbers it covers (a single unmerged piece is just [n]).\n' +
+        '- "surface": the exact word/phrase text this group represents — this MUST be formed by joining ' +
+        'together ONLY the piece(s) listed in "ids", in order, with nothing added or removed. If "reading" ' +
+        'or "meaning" describes a longer or different word than what "ids" covers, that is an error — go back ' +
+        'and add whichever neighboring id(s) are needed so "ids", "surface", "reading", and "meaning" all ' +
+        'describe the exact same word.\n' +
         '- "reading": how the WHOLE group is pronounced together, in hiragana. Always spell out numbers ' +
         'and times fully (e.g. 4時=よじ, a bare number like "260" = "にひゃくろくじゅう"). Never leave empty.\n' +
         '- "meaning": a SHORT (2-6 word) English meaning correct for how it\'s used in this context. Even ' +
@@ -65,8 +73,8 @@ exports.handler = async (event) => {
         'EVERY position number from 0 to ' + (wordList.length - 1) + ' must appear in EXACTLY ONE group\'s ' +
         '"ids" array — no number skipped, no number in two groups.\n\n' +
         'Respond with ONLY valid JSON, no other text, no markdown code fences, in exactly this shape:\n' +
-        '{"groups": [{"ids": [0], "reading": "...", "meaning": "..."}, ' +
-        '{"ids": [1,2,3], "reading": "...", "meaning": "..."}]}';
+        '{"groups": [{"ids": [0], "surface": "...", "reading": "...", "meaning": "..."}, ' +
+        '{"ids": [1,2,3], "surface": "...", "reading": "...", "meaning": "..."}]}';
     }
 
     async function callGemini(){
@@ -99,7 +107,7 @@ exports.handler = async (event) => {
         const ids = g.ids.filter(id => typeof id === 'number' && id >= 0 && id < wordList.length && !covered.has(id));
         if (!ids.length) return;
         ids.forEach(id => covered.add(id));
-        groups.push({ ids, reading: g.reading || '', meaning: g.meaning || '' });
+        groups.push({ ids, surface: g.surface || '', reading: g.reading || '', meaning: g.meaning || '' });
       });
 
       // Fill in any position the model didn't cover (shouldn't normally happen, but
