@@ -1236,6 +1236,17 @@
         if (g.reading && (!isValidKana(reading) || isNumeric(surface))) {
           reading = g.reading;
         }
+
+        // If the word ends in plain hiragana (okurigana), that ending is already
+        // known with certainty — it's literally already kana, no reading needed.
+        // Force the reading to end with that exact text, correcting rare cases where
+        // Gemini mis-hears its own ending (e.g. reading 悩みに悩み's trailing み as
+        // む, defaulting to the more common verb ending out of habit).
+        const trailingHiragana = (surface.match(/[\u3040-\u309F]+$/) || [''])[0];
+        if (trailingHiragana && reading.length >= trailingHiragana.length && !reading.endsWith(trailingHiragana)) {
+          reading = reading.slice(0, -trailingHiragana.length) + trailingHiragana;
+        }
+
         return {
           surface,
           reading,
